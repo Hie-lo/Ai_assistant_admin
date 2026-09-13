@@ -1,0 +1,54 @@
+[project]
+name = "ai-assistant-admin"
+version = "0.1.0"
+description = "دستیار هوشمند کسب‌وکارهای مجازی — multi-tenant SaaS: product ingestion, preset + optional-AI content, multi-platform publication, sync, and business/admin management."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.4",
+    "sqlalchemy==2.0.52",
+    "alembic==1.20.0",
+    "pydantic==2.11.4",
+    "pydantic-settings==2.15.0",
+    "httpx==0.28.1",
+    "celery==5.6.3",
+    "redis==8.1.0",
+    "psycopg[binary]==3.3.5",
+    "openpyxl==3.1.5",
+    "jinja2==3.1.6",
+    "python-dotenv==1.2.3",
+    "google-api-python-client==2.200.0",
+    "google-auth==2.58.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.16.7",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "integration: requires PostgreSQL + Redis services (CI service containers)",
+    "contract: platform / AI provider adapter contract tests",
+    "e2e: end-to-end journeys from interface to durable state and side effects",
+    "failure: crash / restart / timeout / duplicate / recovery scenarios",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["app", "tests", "migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]

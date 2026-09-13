@@ -1,6 +1,17 @@
 # Project Changelog & Architectural Decisions
 # دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-13 — Implementation gates approved (A–H)
+Project Owner approved the implementation gates via structured approval:
+domain contracts (A+B+C+D) as documented; technology stack (F) as proposed;
+platform activation order (E): Telegram + Bale first, Eitaa/Rubika certified
+independently; payment mode V1 (G): manual verification, automatic gateway
+later behind the Payment Provider interface; backup strategy (H): encrypted
+backups + local rotation + off-site copy + mandatory restore testing.
+Gate I (production launch) remains a production-phase gate.
+From this point forward, foundation implementation proceeds in roadmap order
+(Phase 1 = Auth/User/Business/Membership/RBAC + audit foundation).
+
 ## 2026-09-12 — Initial vision consolidation
 The project was reframed from a generic AI business assistant into a focused multi-tenant product publishing and synchronization SaaS.
 

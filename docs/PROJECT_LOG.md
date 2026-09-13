@@ -1,5 +1,60 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-13 — Owner Approval of Implementation Gates (A–H)
+
+### Approval record
+- Date: 2026-09-13 (owner session, structured approval questions)
+- Approved by: Project Owner
+- Status: FINAL for the listed scope
+
+### Decisions
+1. **Gates A+B+C+D — Domain contracts: APPROVED as documented.**
+   Product Domain v2, Post/Publication v1, Source/Mapping/Sync v1,
+   User/Business/Membership/RBAC v1, AI Configuration v1 and
+   Subscription/Payment/Entitlement v1 are adopted as the implementation
+   contracts. Includes: evidence-based identity resolution with no
+   auto-merge; safe quarantine default for missing source rows; Owner/Admin
+   membership with owner-approved admin requests; versioned Presets/AI/Mapping.
+2. **Gate F — Technology stack: APPROVED.**
+   Python 3.13 + FastAPI + SQLAlchemy 2.0.x + PostgreSQL 18 (fallback 17) +
+   Redis + Celery + Jinja2/HTMX + Docker Compose, per
+   TECHNOLOGY_AND_REPO_SPECIFICATION_V1. Exact dependency versions will be
+   locked after the first green compatibility run in CI.
+3. **Gate E — Platform activation order: APPROVED.**
+   Telegram + Bale first (certification, then publication). Eitaa and Rubika
+   are certified independently; only certified capabilities activate.
+4. **Gate G — Payment mode V1: MANUAL VERIFICATION approved.**
+   Owner manually verifies payments and activates subscriptions in V1.
+   Automatic gateway (e.g. Shaparak) comes in a later phase behind the
+   Payment Provider interface.
+5. **Gate H — Backup strategy: APPROVED.**
+   Encrypted periodic backups + local rotation + off-site copy + mandatory
+   restore testing. Telegram may carry an additional encrypted copy only —
+   never the sole DR source. Off-site destination pending server details.
+6. **Gate I — Production launch: DEFERRED** to the production phase
+   (certification + security review + load test + restore test + failure-matrix pass).
+
+### Impact
+- Phase 0 (Approval & baseline) is unblocked.
+- Foundation implementation may proceed in roadmap order; Phase 1 =
+  Auth / User / Business / Membership / RBAC + audit foundation.
+
+## 2026-09-13 — Project Understanding Report delivered
+
+- AI Developer completed the mandatory bootstrap reading of all 22 package
+  documents and delivered `docs/PROJECT_UNDERSTANDING_REPORT_V1.md`
+  (14 sections: scope, non-goals, domains, security rules, failure/recovery
+  rules, approved vs pending decisions, doc conflicts, gaps, risks,
+  implementation order, critical tests, repository readiness).
+- Findings: 3 minor doc inconsistencies recorded (Subscription phase order
+  between roadmap and bootstrap reference; duplicated section number 17 in
+  MASTER spec; permission list overlap between Product spec and RBAC spec —
+  RBAC spec is authoritative). No technical blockers.
+- READY_TO_PLAN = YES; FIRST_PHASE = Phase 0.
+- The 22-document package was uploaded to the repository by the owner under
+  `docs/` (flat) and validated document-by-document against the original
+  package (titles + content markers, 22/22 pass).
+
 ## 2026-09-12 — Product Domain v2 Consolidation
 
 ### Scope reinforcement

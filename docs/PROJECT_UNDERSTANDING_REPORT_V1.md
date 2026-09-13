@@ -217,3 +217,23 @@ FIRST_PHASE          = Phase 0 (Approval & baseline) — شروع بعد از ت
 ```
 
 **اقدام بعدی امن** (مطابق FINAL_REVIEW_AND_SELF_SCORE_V1): دریافت تأیید مالک برای Gates، سپس پیاده‌سازی به ترتیب roadmap با تست و log بعد از هر تغییر بزرگ.
+
+---
+
+## Addendum — 2026-09-13: Gates APPROVED by owner
+
+```text
+Gate A+B+C+D (domain contracts)  = APPROVED (as documented)
+Gate E  (platform order)         = APPROVED (Telegram+Bale first; Eitaa/Rubika certified)
+Gate F  (stack)                  = APPROVED (versions locked after first green CI run)
+Gate G  (payment V1)             = APPROVED (manual verification; gateway later)
+Gate H  (backup)                 = APPROVED (off-site destination pending server details)
+Gate I  (production launch)      = DEFERRED to production phase
+```
+
+With these approvals, Phase 0 proceeded: package validated in-repo, project
+baseline scaffolded (app tree, CI, Alembic, Docker Compose, structural tests).
+Next: Phase 1 design presentation (Auth/User/Business/Membership/RBAC) then
+implementation. Open items from §10 (server location/specs, AI provider,
+initial business types, bot accounts, domain) remain to be answered by the
+owner and are tracked in this report.
