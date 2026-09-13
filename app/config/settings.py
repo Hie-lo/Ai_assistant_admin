@@ -73,6 +73,16 @@ class Settings(BaseSettings):
     ai_openai_model: str = "gpt-4o-mini"
     ai_request_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
 
+    # --- Telegram (Phase 5) ---
+    # Shared organization bot (owner decision 2026-09-15): ONE platform-level
+    # bot managed by the operator; each business adds it to its own
+    # channel/group as admin and connects that target. The token is an
+    # operational secret (environment), never stored per business, never
+    # logged (developer directive rule 14).
+    telegram_bot_token: str = ""
+    telegram_api_base_url: str = "https://api.telegram.org"
+    telegram_request_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+
     @property
     def is_prod(self) -> bool:
         return self.environment == "prod"

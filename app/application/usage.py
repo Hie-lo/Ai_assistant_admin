@@ -49,5 +49,22 @@ def _sources_usage(db, business_id: uuid.UUID) -> int:
     )
 
 
+def _channels_usage(db, business_id: uuid.UUID) -> int:
+    # A slot is occupied until the connection is explicitly disconnected.
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(models.PlatformConnection)
+            .where(
+                models.PlatformConnection.business_id == business_id,
+                models.PlatformConnection.status
+                != enums.PlatformConnectionStatus.DISCONNECTED.value,
+            )
+        )
+        or 0
+    )
+
+
 entitlements.register_usage_counter("products", _products_usage)
 entitlements.register_usage_counter("sources", _sources_usage)
+entitlements.register_usage_counter("channels", _channels_usage)

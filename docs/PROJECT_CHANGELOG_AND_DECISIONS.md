@@ -1,6 +1,62 @@
 # Project Changelog & Architectural Decisions
 # دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-15 — Phase 5 platform/publication decisions approved
+Owner approved (6 structured questions, 2026-09-15):
+1. Publish mode V1: MANUAL only (explicit owner action per product per
+   connection). Automatic/scheduled publishing and the sync engine land
+   in Phase 8 and will drive the same publication state machine.
+2. Bot model: ORGANIZATIONAL SHARED BOT — the platform manages ONE
+   Telegram bot (token configured operationally via env, never stored
+   per business, never logged). The business owner adds the bot as
+   ADMIN to its own channel/group and connects that target; verification
+   proves control (getMe -> getChat -> getChatMember admin). (The
+   per-business-bot-token alternative was explicitly declined.)
+3. Media: album up to 10 photos per post (Telegram media group); when
+   media is present the text becomes the CAPTION (<=1024), plain text
+   <=4096 otherwise. The Phase 4 renderer trims by approved priority and
+   blocks (never silently truncates) when essentials don't fit.
+4. Product changes: MANUAL "update" trigger with AUTOMATIC
+   classification NOOP (no-op) / EDIT (in-place text/caption edit) /
+   REPOST (media change or edit unsupported -> new message). No
+   auto-apply in V1.
+5. Remote manual deletion by the owner in Telegram: recorded as
+   REMOTE_DELETED (post archived) and NEVER auto-reposted (spec section
+   16 V1 policy).
+6. Repost safe order: publish NEW -> verify -> delete OLD (spec section
+   19). The old message is never deleted first; if verification of the
+   new message fails, the old one stays live and the new one is
+   reconciled later (the interrupted final step is completed at that
+   time).
+
+Model decisions (documented for the record):
+- Adapter contract: the core uses semantic operations + a capability
+  matrix (Telegram: 4096/1024/10, edit/delete/inspect supported); HTTP
+  errors are classified into the platform taxonomy (401/403/404/429/400
+  + timeout/network); response bodies and credentials never leave the
+  adapter (rule 14).
+- Publication state machine: 17 explicit states; a timeout is UNKNOWN_
+  REMOTE_STATE (never a failure); UNKNOWN must reconcile, never
+  auto-retry as a fresh publish; a publish timeout that lost the message
+  id stays explicitly unresolved (no remote search in V1) while the
+  duplicate guard still prevents a blind re-publish.
+- Invariant: at most ONE PUBLISHED publication per (connection,
+  product), enforced by the state machine AND a PostgreSQL partial
+  unique index; the old publication leaves PUBLISHED before the
+  replacement enters it (remote order unchanged: new -> verify -> old).
+- Permission loss / disconnect SUSPENDS every publication that holds
+  (or may hold) a remote message; (re)verification RESUMES suspended
+  publications by reconciling each one individually — never
+  bulk-republishing (adapter spec section 15).
+- Idempotency: deterministic publish key per (business, product,
+  connection, post version) with a unique column backstop (effectively-
+  once, spec section 14); every remote operation leaves a durable
+  attempt record (spec section 30).
+- Entitlement: connecting uses the plan's channels limit (Starter: 2,
+  runtime-adjustable); a DISCONNECTED connection frees its slot.
+- Migration e9f0a1b2c3d4: additive (5 tables + indexes + partial unique
+  backstop).
+
 ## 2026-09-14 — Phase 4 content/AI decisions approved
 Owner approved (6 structured questions; 5 recommended + 1 extension):
 1. AI provider: deterministic built-in template generator NOW (offline,

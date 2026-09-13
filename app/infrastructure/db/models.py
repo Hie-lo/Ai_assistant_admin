@@ -1016,3 +1016,207 @@ class AIOutputArtifact(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: Platform connections / Posts / Publications
+# ---------------------------------------------------------------------------
+
+
+class PlatformConnection(Base):
+    """A business's connection to a platform target (Telegram V1).
+
+    Shared organization bot (owner decision 2026-09-15): the bot credential
+    is platform-level (environment), so NO secret is stored here. The
+    business adds the bot to its own channel/group as admin and connects the
+    target. ``control_verified`` is the technical proof of control; legal
+    ownership is a separate concern (adapter spec section 11).
+    """
+
+    __tablename__ = "platform_connections"
+    __table_args__ = (
+        UniqueConstraint(
+            "business_id", "platform", "platform_target_id", name="uq_platform_conn_target"
+        ),
+    )
+
+    connection_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    platform: Mapped[str] = mapped_column(
+        Enum(enums.Platform, native_enum=False, validate_strings=True), nullable=False
+    )
+    target_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    platform_target_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(
+        Enum(enums.PlatformConnectionStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.PlatformConnectionStatus.PENDING_VERIFICATION.value,
+    )
+    control_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(String(48))
+    created_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+
+
+class Post(Base):
+    """Logical, platform-independent content object for a Product (spec 3.1).
+
+    One Post per (business, product) in V1. It references the exact
+    ProductVersion / PresetVersion / AI outputs via its PostVersions, so
+    historical content is reproducible (spec section 27).
+    """
+
+    __tablename__ = "posts"
+    __table_args__ = (
+        UniqueConstraint("business_id", "product_id", name="uq_posts_business_product"),
+    )
+
+    post_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("products.product_id"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(
+        Enum(enums.PostStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.PostStatus.PUBLISHED.value,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+
+
+class PostVersion(Base):
+    """Immutable rendered-content snapshot used for a publication (spec 3.2).
+
+    A historical PostVersion is never rewritten; it retains the exact
+    product/preset/AI references and a content + media fingerprint (spec 27).
+    """
+
+    __tablename__ = "post_versions"
+    __table_args__ = (
+        UniqueConstraint("post_id", "version", name="uq_post_versions_no"),
+    )
+
+    version_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    post_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("posts.post_id"), nullable=False, index=True
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    product_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid, ForeignKey("product_versions.version_id")
+    )
+    preset_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid, ForeignKey("preset_versions.version_id")
+    )
+    #: AI artifact ids referenced by key, e.g. {"ai_description": "<uuid>"}.
+    ai_artifact_refs: Mapped[dict] = mapped_column(
+        "ai_artifact_refs", JSON, nullable=False, default=dict
+    )
+    content_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    media_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    media_urls: Mapped[list] = mapped_column("media_urls", JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+
+
+class Publication(Base):
+    """A platform-specific remote instance of a PostVersion (spec 3.3).
+
+    Explicit state machine (a boolean ``posted`` is never the source of
+    truth). ``idempotency_key`` is the deterministic publish identity and
+    uniquely backstops duplicate jobs/workers (spec section 14).
+    """
+
+    __tablename__ = "publications"
+
+    publication_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    post_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("posts.post_id"), nullable=False, index=True
+    )
+    post_version_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("post_versions.version_id"), nullable=False
+    )
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("platform_connections.connection_id"), nullable=False, index=True
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("products.product_id"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(
+        Enum(enums.PublicationStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.PublicationStatus.NOT_PUBLISHED.value,
+    )
+    remote_message_id: Mapped[str | None] = mapped_column(String(64))
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    #: Fingerprint of the remote content last seen (for edit-drift detection).
+    remote_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    #: True when the remote text was manually edited outside the system.
+    remote_modified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    error_code: Mapped[str | None] = mapped_column(String(48))
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+
+
+class PublicationAttempt(Base):
+    """Durable record of one remote operation attempt (spec 3.4).
+
+    Compact: fingerprint/ids/status/error code — not the full remote payload
+    (spec section 28). Every externally visible side effect is traceable
+    (spec section 30).
+    """
+
+    __tablename__ = "publication_attempts"
+
+    attempt_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    publication_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("publications.publication_id"), nullable=False, index=True
+    )
+    operation: Mapped[str] = mapped_column(
+        Enum(enums.PublicationOperation, native_enum=False, validate_strings=True),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        Enum(enums.AttemptStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+    )
+    error_code: Mapped[str | None] = mapped_column(String(48))
+    error_detail: Mapped[str | None] = mapped_column(String(300))
+    remote_message_id: Mapped[str | None] = mapped_column(String(64))
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -126,6 +126,11 @@ def create_app() -> FastAPI:
     app.include_router(routes_content.router)
     app.include_router(routes_content.admin_router)
 
+    # --- Phase 5 router (platform connections / publications) ---
+    from app.interfaces.http import routes_publications
+
+    app.include_router(routes_publications.router)
+
     # Register authoritative entitlement usage counters (products, sources).
     from app.application import usage  # noqa: F401
 

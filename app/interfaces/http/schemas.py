@@ -678,3 +678,60 @@ class PreviewOut(BaseModel):
     media_urls: list[str]
     blocks: list[PreviewBlockOut]
     warnings: list[str]
+
+
+# --- Phase 5: Platform connections / Publications ---
+
+
+class ConnectionCreateRequest(BaseModel):
+    platform: str = Field(default="TELEGRAM", min_length=1, max_length=16)
+    target: str = Field(min_length=3, max_length=128)
+
+
+class PlatformConnectionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    connection_id: uuid.UUID
+    business_id: uuid.UUID
+    platform: str
+    target_name: str
+    platform_target_id: str
+    status: str
+    control_verified: bool
+    last_verified_at: datetime | None
+    last_error_code: str | None
+    created_at: datetime
+
+
+class PublishRequest(BaseModel):
+    connection_id: uuid.UUID
+
+
+class PublicationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    publication_id: uuid.UUID
+    post_id: uuid.UUID
+    post_version_id: uuid.UUID
+    connection_id: uuid.UUID
+    business_id: uuid.UUID
+    product_id: uuid.UUID
+    status: str
+    remote_message_id: str | None
+    remote_modified: bool
+    error_code: str | None
+    last_attempt_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    text: str | None = None
+    media_urls: list[str] = []
+
+
+class PublicationResult(BaseModel):
+    publication: PublicationOut
+    created: bool = True
+    plan: str | None = None
+    updated: bool | None = None
+    new_publication: PublicationOut | None = None
+    deleted: bool | None = None
+    finding: str | None = None

@@ -35,7 +35,13 @@ from app.application.product_presets import (
     render_product_preset,
 )
 from app.domain import enums
-from app.domain.content import ContentBlock, RenderContext, RenderResult, render_blocks
+from app.domain.content import (
+    DEFAULT_MAX_MESSAGE_LENGTH,
+    ContentBlock,
+    RenderContext,
+    RenderResult,
+    render_blocks,
+)
 from app.domain.errors import NotFoundError
 from app.infrastructure.db.models import (
     AIOutputArtifact,
@@ -112,7 +118,9 @@ def _media_urls(db: Session, *, product_id: uuid.UUID) -> list[str]:
     return [m.url for m in rows if m.url]
 
 
-def _context(db: Session, *, business: Business, product: Product) -> RenderContext:
+def _context(
+    db: Session, *, business: Business, product: Product, max_length: int | None = None
+) -> RenderContext:
     return RenderContext(
         product_fields=_product_fields(product),
         attributes=dict(product.attributes or {}),
@@ -120,6 +128,7 @@ def _context(db: Session, *, business: Business, product: Product) -> RenderCont
             db, business_id=business.business_id, product_id=product.product_id
         ),
         media_urls=_media_urls(db, product_id=product.product_id),
+        max_length=max_length or DEFAULT_MAX_MESSAGE_LENGTH,
     )
 
 
@@ -180,6 +189,7 @@ def preview_product(
     business: Business,
     product_id: uuid.UUID,
     preset_version: int | None = None,
+    max_length: int | None = None,
 ) -> dict:
     product = _get_product(db, business=business, product_id=product_id)
     ent = entsvc.get_entitlements(db, business_id=business.business_id)
@@ -205,7 +215,7 @@ def preview_product(
                 pp = None
                 warnings.append("assigned product preset no longer exists (fallback)")
             if pp is not None:
-                ctx = _context(db, business=business, product=product)
+                ctx = _context(db, business=business, product=product, max_length=max_length)
                 result = render_product_preset(
                     db, preset=pp, version_no=preset_version, ctx=ctx
                 )
@@ -229,7 +239,7 @@ def preview_product(
         preset, version = resolved
         if preset_version is not None:
             version = get_preset_version(db, preset.preset_id, preset_version)
-        ctx = _context(db, business=business, product=product)
+        ctx = _context(db, business=business, product=product, max_length=max_length)
         result = render_blocks(
             [ContentBlock.from_dict(b) for b in version.blocks], ctx
         )
@@ -248,7 +258,7 @@ def preview_product(
     warnings.append(
         "no preset configured for this business type; minimal fallback used"
     )
-    ctx = _context(db, business=business, product=product)
+    ctx = _context(db, business=business, product=product, max_length=max_length)
     result = render_blocks(
         [ContentBlock.from_dict(b) for b in _FALLBACK_BLOCKS], ctx
     )

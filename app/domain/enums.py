@@ -316,3 +316,87 @@ class AIFailureKind(str_enum):
     TRANSIENT = "TRANSIENT"
     PERMANENT = "PERMANENT"
     INVALID_OUTPUT = "INVALID_OUTPUT"
+
+
+# --- Publication / Platform connections (Phase 5) ---
+
+
+class PlatformConnectionStatus(str_enum):
+    """Lifecycle of a business's connection to a platform target."""
+
+    PENDING_VERIFICATION = "PENDING_VERIFICATION"
+    VERIFIED = "VERIFIED"
+    PERMISSION_LOST = "PERMISSION_LOST"
+    DISCONNECTED = "DISCONNECTED"
+
+
+class PostStatus(str_enum):
+    """Logical Post state (platform-independent; publication state lives on
+    Publication rows)."""
+
+    PUBLISHED = "PUBLISHED"
+    UPDATE_REQUIRED = "UPDATE_REQUIRED"
+    REPOST_REQUIRED = "REPOST_REQUIRED"
+    DELETE_REQUIRED = "DELETE_REQUIRED"
+    ARCHIVED = "ARCHIVED"
+
+
+class PublicationStatus(str_enum):
+    """Explicit publication state machine (a boolean `posted` is never the
+    source of truth — spec section 12)."""
+
+    NOT_PUBLISHED = "NOT_PUBLISHED"
+    QUEUED = "QUEUED"
+    PUBLISHING = "PUBLISHING"
+    PUBLISHED = "PUBLISHED"
+    UPDATE_PENDING = "UPDATE_PENDING"
+    UPDATING = "UPDATING"
+    REPOST_PENDING = "REPOST_PENDING"
+    REPOSTING = "REPOSTING"
+    DELETE_PENDING = "DELETE_PENDING"
+    DELETING = "DELETING"
+    REMOTE_DELETED = "REMOTE_DELETED"
+    DISCONNECTED = "DISCONNECTED"
+    PERMISSION_LOST = "PERMISSION_LOST"
+    FAILED_RETRYABLE = "FAILED_RETRYABLE"
+    FAILED_FINAL = "FAILED_FINAL"
+    UNKNOWN_REMOTE_STATE = "UNKNOWN_REMOTE_STATE"
+    RECONCILING = "RECONCILING"
+
+
+class PublicationOperation(str_enum):
+    """Semantic operations recorded on attempts."""
+
+    PUBLISH = "PUBLISH"
+    EDIT = "EDIT"
+    REPOST = "REPOST"
+    DELETE = "DELETE"
+    RECONCILE = "RECONCILE"
+    VERIFY_CONNECTION = "VERIFY_CONNECTION"
+
+
+class AttemptStatus(str_enum):
+    """Outcome of one remote operation attempt."""
+
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"  # e.g. timeout after possible acceptance
+
+
+class PublicationErrorCode(str_enum):
+    """Machine-readable error taxonomy (spec section 29)."""
+
+    AUTHENTICATION_ERROR = "AUTHENTICATION_ERROR"
+    PERMISSION_ERROR = "PERMISSION_ERROR"
+    NOT_FOUND = "NOT_FOUND"
+    RATE_LIMITED = "RATE_LIMITED"
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    LENGTH_LIMIT = "LENGTH_LIMIT"
+    MEDIA_UNSUPPORTED = "MEDIA_UNSUPPORTED"
+    PLATFORM_UNSUPPORTED_OPERATION = "PLATFORM_UNSUPPORTED_OPERATION"
+    NETWORK_TIMEOUT = "NETWORK_TIMEOUT"
+    NETWORK_ERROR = "NETWORK_ERROR"
+    REMOTE_UNKNOWN = "REMOTE_UNKNOWN"
+    DUPLICATE_GUARD = "DUPLICATE_GUARD"
+    CONCURRENCY_CONFLICT = "CONCURRENCY_CONFLICT"
+    INTERNAL_ERROR = "INTERNAL_ERROR"

@@ -1,5 +1,88 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-15 — Phase 5 implementation (Platform adapter / Telegram connection / Publication)
+
+### Delivered
+- Platform adapter contract (PLATFORM_ADAPTER_SPECIFICATION): the domain
+  core requests SEMANTIC operations (send/edit/delete/inspect) against a
+  client interface; platform behavior (limits, error mapping) lives in a
+  capability matrix + adapter, never hard-coded in the core. Telegram
+  adapter: verified Bot API limits (text 4096, caption 1024, media group
+  10), HTTP error -> taxonomy classifier (401 auth, 403 permission, 404
+  not-found, 429 rate-limited with retry_after, 400 validation; timeout ->
+  NETWORK_TIMEOUT; never leaks response bodies or credentials).
+- Shared organization bot (owner decision 2026-09-15): ONE platform-level
+  bot token from the environment; the business adds the bot to its own
+  channel/group as admin and connects the target. Verification is a
+  three-step proof of control (getMe -> getChat -> getChatMember admin);
+  no per-business secret is stored anywhere; nothing sensitive is logged.
+- Post & Publication domain (spec sections 3, 11-21, 25): logical Post +
+  immutable PostVersion snapshots (content + media fingerprints; exact
+  product/preset/AI references) -> platform-specific Publication with an
+  explicit 17-state machine (no boolean "posted"), deterministic
+  idempotency key per (business, product, connection, post version) and a
+  durable per-operation attempt log.
+- DB backstop: PostgreSQL partial unique index — at most ONE PUBLISHED
+  publication per (connection, product); the state machine enforces the
+  same invariant in code (the old publication leaves PUBLISHED before the
+  replacement enters it, while the remote order stays publish new ->
+  verify -> delete old).
+- Publication service (manual V1, synchronous — queue workers are Phase
+  8): publish (entitlement -> duplicate guard -> platform-limited render
+  via the Phase 4 engine -> adapter -> PUBLISHED / UNKNOWN_REMOTE_STATE
+  on timeout / FAILED_RETRYABLE|FINAL by taxonomy); update with automatic
+  NOOP / EDIT / REPOST classification; forced repost; remote delete;
+  reconcile/check.
+- Failure-first rules (spec 13-21, 25, 29): a timeout is NEVER a failure
+  (UNKNOWN_REMOTE_STATE, reconcilable; a lost message id stays explicitly
+  unresolved, never a guessed result); a remote manual deletion is
+  recorded (REMOTE_DELETED, post archived) and NEVER auto-reposted; a
+  remote manual edit is flagged remote_modified and never overwritten;
+  permission loss / disconnect SUSPENDS live publications, and
+  (re)verification RESUMES them by reconciling — never bulk-republishing;
+  one publication's failure never affects another.
+- Connection lifecycle: create (entitlement channels limit; duplicate
+  target and same-chat-different-name conflicts fail closed), verify,
+  reconnect (from DISCONNECTED only), disconnect (suspends, never deletes
+  remote content).
+- HTTP: 12 business-scoped endpoints (connections list/create/verify/
+  reconnect/disconnect; publications list/get, publish, update, repost,
+  delete, check) under the RBAC matrix (connections.* / posts.view /
+  posts.publish / posts.update / posts.repost / posts.delete_remote).
+- Migration e9f0a1b2c3d4 (additive: 5 tables + indexes + the partial
+  unique live-publication backstop).
+- Tests: suite grows 244 -> 294 passing locally (unit: state machine full
+  transition matrix + fail-closed illegal transitions + suspension/resume
+  edges, idempotency scoping, NOOP/EDIT/REPOST planning, retryable-code
+  classification, capability contract, error classifier; integration with
+  a scriptable in-memory fake Telegram client: connect/verify/normalization/
+  no-token-in-responses, bot-not-admin, chat-not-found, shared-bot
+  unavailable, duplicate target + same-chat-different-name conflicts,
+  no-subscription 403, channel limit (2) + slot freed by disconnect,
+  verify/reconnect/disconnect flow, cross-tenant 404, narrow-profile 403;
+  publish happy path + effectively-once duplicate block, album capped at
+  10 with caption, caption overflow trimmed (essentials survive), timeout
+  -> UNKNOWN -> unresolved reconcile, rate-limited retryable, permission
+  error final, archived product blocked, unverified connection blocked;
+  update NOOP/EDIT, media change -> repost (new -> verify -> delete old),
+  forced repost, repost verification failure -> reconcile completes the
+  interrupted repost, remote manual delete (no auto-repost, post
+  archived), remote manual edit flagged, delete, permission-loss suspend +
+  resume, disconnect suspend + resume, publication cross-tenant 404).
+
+### Notes
+- Publishing is MANUAL in V1 (owner decision); scheduling/automatic sync
+  publishing arrives with the sync engine (Phase 8) and reuses the same
+  state machine/idempotency/attempt records (queue workers will drive the
+  same service).
+- Real Telegram bot token is configured operationally via env
+  (TELEGRAM_BOT_TOKEN); the fake client makes the whole flow testable
+  offline. A publish timeout that loses the message id cannot be
+  auto-reconciled in V1 (no remote search capability) — the state stays
+  explicitly UNKNOWN and the duplicate guard prevents a blind re-publish.
+- Bale/Eitaa/Rubika adapters are later phases (Bale in Phase 6;
+  Eitaa/Rubika certification-blocked).
+
 ## 2026-09-14 — Phase 4 implementation (Content / Presets / AI)
 
 ### Delivered
