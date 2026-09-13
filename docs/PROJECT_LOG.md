@@ -1,0 +1,156 @@
+# Project Log — دستیار هوشمند کسب‌وکارهای مجازی
+
+## 2026-09-12 — Product Domain v2 Consolidation
+
+### Scope reinforcement
+- V1 remains a public multi-tenant SaaS for product ingestion, content generation, multi-platform publication, synchronization, monitoring, subscriptions, authentication, and Owner-managed Admin access.
+- Training/tutorials and payment/subscription capabilities remain required project capabilities, but they are separate domains and must not pollute Product state.
+- Product Domain must stay compact, deterministic, durable, explainable, and independent from platform-specific publication implementation.
+
+### Lessons extracted from previous project document
+- Previous project documentation was reviewed only as a source of lessons, failure cases, and ideas; its architecture, stack, schema, numerical limits, and implementation patterns are NOT imported automatically.
+- Useful retained lessons: recommended business-specific sample files, structured AI output, AI budget control, prompt versioning, preview, health checks, structured logging, backup/recovery, onboarding/tutorial concepts, and graceful degradation.
+- Deliberately rejected as automatic carry-over: SKU-as-mandatory identity, row-based identity, boolean publication state, fixed rate limits, scheduler choice, hard-coded AI description model, single-image field, and Telegram-centric architecture.
+
+### New Product Domain v2 requirements
+- Recommended input templates will be provided for each supported business type, while arbitrary customer structures remain supported.
+- Customers should be encouraged to use stable product IDs, avoid ID reuse and unnecessary row churn, keep one logical product per record, and avoid duplicates. These are recommendations, not system dependencies.
+- Product identity is independent of source row position/order.
+- Internal Product ID is immutable.
+- Source Record is distinct from Product and may move/disappear/reappear.
+- Product identity resolution uses an evidence hierarchy and conservative ambiguity handling.
+- False merge is treated as more dangerous than false-new-product.
+- Identity decisions must be explainable through compact evidence.
+- Product Media is a first-class component supporting add/remove/replace/reorder from Customer/Admin panels.
+- Product supports stable core fields plus typed business-specific custom attributes.
+- Custom fields are template-exposable with formatting rules, e.g. `{touch}` -> `دارد/ندارد`.
+- Product version storage must favor current state + hashes + compact change metadata rather than full snapshots on every sync.
+- Product deletion/missing-source handling remains non-destructive by default.
+- Import must isolate invalid rows and allow valid rows to continue where safe.
+- Import Preview / Sync Diff is a required quality and safety feature.
+- Suspicious high-risk changes can be isolated/reviewed before downstream propagation.
+- AI outputs are separate versioned editorial artifacts, manually editable and reusable after approval.
+- Existing published products/posts must NOT receive automatic new AI generations because prompt/model versions change.
+- Presets are versioned and historical publications remain tied to their used version.
+- Business type correction must not destroy Product data; creation of a genuinely new Business must not mix Products or publication state across Businesses.
+- Subscription/entitlement checks gate processing but subscription expiry must not destroy Product data.
+- Product permissions are Business-scoped and server-enforced.
+
+### Required Product Domain invariants
+1. Row number/order never identifies a Product.
+2. Product identity survives source row movement.
+3. Product ID is immutable.
+4. Missing source data is not immediate deletion.
+5. Ambiguous identity never silently merges.
+6. Product facts are independent from AI outputs.
+7. Product is independent from Post/Publication.
+8. Identical repeated syncs are idempotent.
+9. One invalid record cannot corrupt unrelated valid records.
+10. Critical state is durable, not cache-only.
+11. Unknown state remains explicit until resolved.
+12. Cross-business/tenant data leakage is prohibited.
+
+### New failure scenarios added
+- deleted/recreated source row
+- ID reuse
+- source column meaning change
+- source media vs customer-added media conflict
+- business type correction vs actual new business
+- custom field lifecycle
+- AI artifact reuse/manual override
+- import partial validity
+- suspicious mass changes
+- identity evidence tracking
+- Product Media failures and platform-dependent downstream handling
+
+### New/updated artifact
+- `PRODUCT_DOMAIN_SPECIFICATION_V2.md` created as Draft for review/approval.
+
+### Approval boundary
+No Product foundation/database implementation should begin until Product Domain v2 is explicitly approved or revised by the user, especially:
+- identity resolution
+- custom field storage
+- media model
+- missing-source policy
+- business-type change rules
+- compact version/history strategy
+- AI artifact model
+
+## 2026-09-12 — Post & Publication Domain Specification v1 drafted
+
+### New design artifact
+- POST_PUBLICATION_DOMAIN_SPECIFICATION_V1.md created.
+
+### Core design principles
+- Post is platform-independent; Publication is platform-specific.
+- PostVersion and PublicationAttempt are historical/operational evidence and must not be overwritten.
+- Remote state uncertainty is explicit and must reconcile before duplicate/destructive actions.
+- System targets effectively-once behavior using idempotency, unique constraints, concurrency guards, durable attempts, remote identifiers, and reconciliation.
+- Reconnect after partial publication must resume from durable publication state instead of republishing everything.
+- Repost is Publish New -> Verify -> Delete Old whenever safe/possible.
+- Remote manual edits do not become Product edits in V1.
+- Managed content and customer-owned content are separated conceptually.
+- Platform capabilities and limits are adapter-specific; no Telegram assumptions may be copied to other platforms.
+- Preview should use the same renderer/validator pipeline as publish.
+- Historical posts never auto-regenerate AI content because of prompt/model changes.
+
+### Current external verification
+- Telegram official Bot API documents 1-4096 characters for text messages after entity parsing, 0-1024 for media captions, media-group sending via sendMediaGroup, caption editing, and media editing. Capabilities are platform-specific and must not be generalized. Source: https://core.telegram.org/bots/api
+- Telegram core API documentation also exposes media/message editing details. Source: https://core.telegram.org/api/files
+- Eitaa/Rubika capabilities remain subject to official API verification and live adapter tests before production claims.
+
+### Approval gate
+- Post/Publication domain is still Draft for Review/Approval.
+- Database schema, queue technology, or implementation should not be finalized from this draft alone.
+
+## 2026-09-12 — User/Business/Membership/RBAC Domain Specification v1 drafted
+
+### New design artifact
+- `USER_BUSINESS_MEMBERSHIP_RBAC_SPEC_V1.md` created as Draft for Review/Approval.
+
+### Core decisions/proposals
+- User is an identity, not a permanent global Owner/Admin classification.
+- Roles are scoped to Business via Membership.
+- User-selected role during onboarding is intent only and never grants authorization.
+- Owner can remove Admin at any time; revocation is auditable and must block future protected actions.
+- Admin access is requested by candidate and approved/rejected by the Business Owner.
+- Authorization is server-side and combines Membership role, permissions, Business scope, resource ownership, subscription entitlement, and operation risk.
+- Business Type is separate from Business identity. Classification correction can preserve the same Business; a genuinely different business should be a new/archived Business context rather than an overwrite.
+- Account linking across Web/Telegram/Bale requires explicit proof/control and must prevent accidental identity merges.
+- Channel connection must verify technical control and required permissions; usernames/channel names are never sufficient ownership proof.
+- Cross-tenant access must fail closed.
+- Exact authentication, permission matrix, and platform verification mechanisms remain approval-gated decisions.
+
+### New required failure scenarios
+- wrong role selection
+- duplicate/stale admin requests
+- simultaneous approvals
+- admin revocation during queued/running jobs
+- cross-business context mistakes
+- account linking ambiguity
+- channel already linked elsewhere
+- business-type correction during active work
+- subscription expiry during admin work
+
+### Approval gate
+- No implementation of authorization foundations until Membership lifecycle, RBAC matrix, authentication/linking, business switching, and platform control verification are explicitly approved.
+
+
+## 2026-09-12 — Consolidated design package + final review
+- Consolidated implementation package prepared with domain, architecture, security, test, operations and developer-directive documents.
+- Added common SaaS foundation capabilities: account settings, notifications, support/help, maintenance mode, feature flags, locale/timezone, safe data export, session/device controls and terms/privacy version tracking.
+- Added FINAL_REVIEW_AND_SELF_SCORE_V1.md with an overall planning quality score of 9.8/10.
+- No implementation code was written during this planning package phase.
+
+
+## 2026-09-12 — AI Bootstrap Contract Added
+
+### Added
+- Added `00_START_HERE.md` as mandatory entry point for any AI developer receiving the project package.
+- Defined interactive phase-by-phase workflow: read -> understand -> plan -> approval -> implement -> test -> review -> log -> owner validation.
+- Defined owner approval boundaries, Change Proposal format, Stop/Blocker protocol, Bug Loop prevention, failure-first rules, platform certification rules, documentation rules, Definition of Done, and final review protocol.
+- Refreshed project package archive as `PROJECT_PACKAGE_V1_FINAL.zip`.
+
+### Final package intent
+- The package is intended to be supplied to an AI coding/development agent as an engineering specification and development-governance package, not as permission to blindly generate the entire system.
+- The AI must begin with a Project Understanding Report and must not start foundation implementation before required approvals are obtained.
