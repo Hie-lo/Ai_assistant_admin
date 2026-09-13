@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
 from app.infrastructure.db.models import AuditLog
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 PASSWORD = "correct-horse-battery-1"
+
+pytestmark = pytest.mark.integration
 
 
 def _actions(db: Session) -> list[str]:

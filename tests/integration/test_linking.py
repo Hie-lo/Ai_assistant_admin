@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 PASSWORD = "correct-horse-battery-1"
 INTERNAL = {"X-Internal-Token": "test-internal-token"}
+
+pytestmark = pytest.mark.integration
 
 
 def _register_login(client: TestClient, email: str) -> None:

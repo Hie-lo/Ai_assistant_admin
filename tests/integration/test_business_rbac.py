@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 
 PASSWORD = "correct-horse-battery-1"
 
+pytestmark = pytest.mark.integration
+
 
 def _register_login(client: TestClient, email: str, name: str = "T") -> None:
     assert (

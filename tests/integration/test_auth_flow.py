@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 
 PASSWORD = "correct-horse-battery-1"
 
+pytestmark = pytest.mark.integration
+
 
 def _register(client: TestClient, email: str, name: str = "Test") -> None:
     resp = client.post(
