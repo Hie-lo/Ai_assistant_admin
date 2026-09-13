@@ -115,6 +115,14 @@ def create_app() -> FastAPI:
 
     app.include_router(routes_billing.router)
 
+    # --- Phase 3 router (sources/products/review) ---
+    from app.interfaces.http import routes_products
+
+    app.include_router(routes_products.router)
+
+    # Register authoritative entitlement usage counters (products, sources).
+    from app.application import usage  # noqa: F401
+
     return app
 
 

@@ -1,5 +1,62 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-13 — Phase 3 implementation (Source / Product core)
+
+### Delivered
+- Domain (pure, framework-free): identity normalization (NFKC + Persian
+  yae/kaf unification + casefold), deterministic fingerprints, and the
+  resolution priority external_id -> SKU -> barcode -> fingerprint ->
+  name-only-collision; change-risk classification with the approved
+  thresholds (price jump >50% = HIGH, identity change = CRITICAL, custom
+  spec = HIGH, mass change >=5 products = quarantine, mass missing >50%
+  = block).
+- Source adapters behind one contract: Excel/XLSX (openpyxl, header
+  detection, empty-row skipping, incomplete-read reporting) and Google
+  Sheets (injectable client factory, batch values.get, permission/API
+  failures reported as incomplete reads — never auto-missing).
+- Product model: canonical product (durable UUID, business-scoped), typed
+  custom attributes (JSON, metadata from the mapping version), compact
+  product versions (change categories + risk, not full snapshots),
+  first-class media with SOURCE vs CUSTOMER origin protection, per-source
+  row records (locator, not identity), versioned column mapping
+  (DRAFT/ACTIVE/SUPERSEDED), review cases, and import runs.
+- Import pipeline (manual V1): entitlement gate -> structural read ->
+  per-row validation -> identity resolution (pure) -> upsert/create/review
+  case -> missing-row inference (only on confirmed complete reads) ->
+  ImportRun summary + audit. Idempotent re-sync via row content hash; row
+  moves keep identity; ambiguous/conflicting identity NEVER auto-merges;
+  identity-field changes are CRITICAL + REVIEW_REQUIRED + frozen; mass
+  HIGH-risk changes quarantine the rest of the run; new products respect
+  the products entitlement; corrupt reads fail the run without touching
+  product state.
+- HTTP: 23 business-scoped endpoints (sources CRUD/pause/resume, mapping
+  suggest/propose/version/activate, import run/preview/list, products
+  list/get/patch/versions, media list/add/remove, archive/restore,
+  review cases list/resolve). New manager-level permissions:
+  products.import, products.review_mapping, sources.view, sources.manage.
+- Entitlement usage counters registered for real: products (non-archived)
+  and sources (active+paused).
+- Migration c7d8e9f0a1b2 (additive; 8 tables; unique backstops for
+  locator-per-source and version-per-product).
+- Tests: suite grows 110 -> 199 passing locally (unit: identity full
+  matrix + fingerprint rules, change-risk thresholds, Persian/English
+  mapping heuristics, Excel adapter, Google Sheets adapter with fake
+  client; integration: full import happy path + idempotent re-sync,
+  change/risk versioning, missing + reappearance, row move, mass-missing
+  block, ambiguous/duplicate/conflict identity -> review case + resolve,
+  identity-change freeze, media customer protection (default +
+  media_authoritative), invalid rows, corrupt-file no-missing, preview
+  zero-write, entitlement gates (product/source/daily-sync),
+  cross-tenant 404, permission 403, audit trail; product API: edits,
+  versions, custom attributes, media ops, archive/restore).
+
+### Notes
+- V1 sync is manual only; the scheduler (periodic sync) lands in Phase 8.
+- Google Sheets credentials are configured operationally (service-account
+  file path behind credentials_ref); the adapter is fully mock-tested.
+- Review cases are the ONLY path by which a quarantined row reaches a
+  product; every resolution is audited.
+
 ## 2026-09-13 — Phase 2 implementation (Subscription / Payment / Entitlement)
 
 ### Delivered

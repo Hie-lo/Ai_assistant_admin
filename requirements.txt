@@ -16,6 +16,7 @@ psycopg[binary]==3.3.5
 openpyxl==3.1.5
 jinja2==3.1.6
 python-dotenv==1.2.3
+python-multipart==0.0.32
 google-api-python-client==2.200.0
 google-auth==2.58.0
 argon2-cffi==25.1.0

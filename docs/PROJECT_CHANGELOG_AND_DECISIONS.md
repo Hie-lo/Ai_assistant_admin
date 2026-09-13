@@ -1,6 +1,52 @@
 # Project Changelog & Architectural Decisions
 # دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-13 — Phase 3 source/product core decisions approved
+Owner approved (6 structured questions, all recommended options):
+1. Identity algorithm: priority external_id -> SKU -> barcode ->
+   deterministic fingerprint -> (name-only collision = duplicate candidate
+   for review). AMBIGUOUS / IDENTITY_CONFLICT always create a review case;
+   never auto-merge.
+2. Fingerprint composition: name + category + first technical spec;
+   fallback name + first 120 normalized chars of description. Name-only is
+   NEVER a confident identity rule.
+3. Custom fields: typed JSON inside Product (attributes); field
+   type/metadata (type, display name, required, template exposure) comes
+   from the mapping version — no per-field schema migrations in V1.
+4. Media V1: URL references (no server file storage). Customer-added media
+   (origin=CUSTOMER) are protected from source refresh by default
+   (source.media_authoritative=false).
+5. Missing rows: non-destructive. A row missing from a confirmed complete
+   read moves the product to MISSING_FROM_SOURCE (no deletion);
+   reappearance reconnects automatically. >50% of the baseline missing in
+   one read blocks missing inference (MASS_MISSING_BLOCKED review case).
+6. Google Sheets adapter implemented now (mock-tested via an injectable
+   client factory); real OAuth/service-account credentials are configured
+   operationally later (credentials_ref, secrets never logged).
+
+Model decisions (documented for the record):
+- Row position (locator) is a locator, NOT identity. Row moves keep the
+  product identity through the identity fields.
+- Idempotent re-sync: a row whose normalized mapped content is unchanged
+  (row content hash) produces no new version.
+- Identity-field changes (external_id/sku/barcode) are always CRITICAL
+  risk, create a review-required state, and retain the old identifier in
+  the version row (reversible). Products in REVIEW_REQUIRED are frozen for
+  automatic updates.
+- Mass change quarantine: the same HIGH-risk field changing on >=5
+  products in one run quarantines the remaining rows of that run
+  (SUSPICIOUS_CHANGE review case; already-applied changes remain applied).
+- Suspicious price jump: relative change >50% is HIGH risk.
+- V1 sync is MANUAL only (scheduler is Phase 8); at most one RUNNING
+  import per source (duplicate -> 409); plan limit
+  sync_frequency_per_day enforced per business per UTC day.
+- Mapping is versioned (DRAFT/ACTIVE/SUPERSEDED); changing a mapping never
+  mutates an old version; a superseded version cannot be re-activated.
+- New permissions (manager-level, not owner-only): products.import,
+  products.review_mapping, sources.view, sources.manage.
+- Entitlement usage counters registered for real: "products" (non-archived
+  count) and "sources" (active+paused count) in the domain registry.
+
 ## 2026-09-13 — Phase 2 subscription/payment/entitlement decisions approved
 Owner approved (structured questions):
 1. Plans V1: full catalog mechanism + one seeded "Starter" plan with sensible

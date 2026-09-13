@@ -518,3 +518,305 @@ class CreditTransaction(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     )
+
+# --- Phase 3: Source / Product ----------------------------------------------
+
+
+class Source(Base):
+    """A connected product source (Excel upload / Google Sheet)."""
+
+    __tablename__ = "sources"
+
+    source_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    kind: Mapped[str] = mapped_column(
+        Enum(enums.SourceKind, native_enum=False, validate_strings=True), nullable=False
+    )
+    # External reference: spreadsheet ID for Google Sheets; informational for
+    # Excel uploads (no file is persisted in V1 — each import carries the file).
+    external_ref: Mapped[str | None] = mapped_column(String(320))
+    sheet_name: Mapped[str | None] = mapped_column(String(120))
+    range_spec: Mapped[str | None] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(
+        Enum(enums.SourceStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.SourceStatus.PENDING_MAPPING.value,
+    )
+    # Credentials reference (secret store key) — never the secret itself.
+    credentials_ref: Mapped[str | None] = mapped_column(String(120))
+    # When False (default), a source refresh must never remove/replace
+    # customer-managed media (spec: default safety principle).
+    media_authoritative: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_baseline_count: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+
+
+class SourceMapping(Base):
+    """Versioned column mapping for a source (spec: mapping is versioned).
+
+    ``entries`` is a JSON list of:
+    {"column": str, "canonical_field": str, "field_kind": "CORE"|"CUSTOM",
+     "field_type": str, "display_name": str, "required": bool,
+     "template_exposed": bool, "confidence": float, "evidence": str}
+    Changing a mapping creates a NEW version; old versions are kept.
+    """
+
+    __tablename__ = "source_mappings"
+
+    mapping_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("sources.source_id"), nullable=False, index=True
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        Enum(enums.MappingStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.MappingStatus.DRAFT.value,
+    )
+    entries: Mapped[list] = mapped_column("entries", JSON, nullable=False, default=list)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+
+
+class SourceRecord(Base):
+    """Current representation of one source item (row) — locator, not identity.
+
+    Row position is never identity; the record links a locator to the
+    resolved Product (or nothing when unresolved).
+    """
+
+    __tablename__ = "source_records"
+
+    record_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("sources.source_id"), nullable=False, index=True
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    # Source-specific locator, e.g. "Sheet1!42" or "row:42".
+    locator: Mapped[str] = mapped_column(String(220), nullable=False)
+    external_key: Mapped[str | None] = mapped_column(String(120), index=True)
+    sku: Mapped[str | None] = mapped_column(String(120), index=True)
+    barcode: Mapped[str | None] = mapped_column(String(120), index=True)
+    fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
+    # SHA-256 of the normalized mapped values (idempotency anchor).
+    content_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid, ForeignKey("products.product_id"), index=True
+    )
+    mapping_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid, ForeignKey("source_mappings.mapping_id")
+    )
+    state: Mapped[str] = mapped_column(String(32), nullable=False, default="PRESENT")
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+
+
+class Product(Base):
+    """Canonical internal product — durable identity and trusted facts.
+
+    ``product_id`` is immutable. Facts are independent of AI content, Posts
+    and Publications. Cross-business access is impossible (all queries are
+    business-scoped).
+    """
+
+    __tablename__ = "products"
+
+    product_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(320), nullable=False)
+    category: Mapped[str | None] = mapped_column(String(160))
+    description: Mapped[str | None] = mapped_column(Text)
+    price: Mapped[int | None] = mapped_column(Integer)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="IRT")
+    stock: Mapped[int | None] = mapped_column(Integer)
+    external_id: Mapped[str | None] = mapped_column(String(120), index=True)
+    sku: Mapped[str | None] = mapped_column(String(120), index=True)
+    barcode: Mapped[str | None] = mapped_column(String(120), index=True)
+    fingerprint: Mapped[str | None] = mapped_column(String(64), index=True)
+    lifecycle_state: Mapped[str] = mapped_column(
+        Enum(enums.ProductLifecycle, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.ProductLifecycle.ACTIVE.value,
+    )
+    current_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Typed custom attributes (no schema migration per new field).
+    attributes: Mapped[dict] = mapped_column("attributes", JSON, nullable=False, default=dict)
+    # Compact identity evidence of the last resolution (explainable).
+    identity_evidence: Mapped[dict | None] = mapped_column("identity_evidence", JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+
+
+class ProductVersion(Base):
+    """Compact version row: change metadata, not a full snapshot."""
+
+    __tablename__ = "product_versions"
+
+    version_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("products.product_id"), nullable=False, index=True
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    change_categories: Mapped[list] = mapped_column(
+        "change_categories", JSON, nullable=False, default=list
+    )
+    risk_level: Mapped[str] = mapped_column(
+        Enum(enums.ChangeRisk, native_enum=False, validate_strings=True), nullable=False
+    )
+    changed_fields: Mapped[dict] = mapped_column(
+        "changed_fields", JSON, nullable=False, default=dict
+    )
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    mapping_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid, ForeignKey("source_mappings.mapping_id")
+    )
+    trigger: Mapped[str] = mapped_column(
+        Enum(enums.SyncTrigger, native_enum=False, validate_strings=True), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+
+
+class ProductMedia(Base):
+    """First-class media item (V1: URL references; no server file storage)."""
+
+    __tablename__ = "product_media"
+
+    media_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("products.product_id"), nullable=False, index=True
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    media_type: Mapped[str] = mapped_column(String(24), nullable=False, default="IMAGE")
+    origin: Mapped[str] = mapped_column(
+        Enum(enums.MediaOrigin, native_enum=False, validate_strings=True), nullable=False
+    )
+    url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    fingerprint: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(
+        Enum(enums.MediaStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.MediaStatus.ACTIVE.value,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+
+
+class ReviewCase(Base):
+    """A quarantined, explainable case requiring a human decision."""
+
+    __tablename__ = "review_cases"
+
+    case_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(
+        Enum(enums.ReviewCaseKind, native_enum=False, validate_strings=True), nullable=False
+    )
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid, ForeignKey("products.product_id"), index=True
+    )
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid, ForeignKey("sources.source_id"), index=True
+    )
+    # Candidates, evidence, held changes — compact and explainable.
+    payload: Mapped[dict] = mapped_column("payload", JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(
+        Enum(enums.ReviewCaseStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.ReviewCaseStatus.OPEN.value,
+    )
+    resolution: Mapped[str | None] = mapped_column(String(80))
+    resolved_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+
+
+class ImportRun(Base):
+    """One manual import/sync execution (spec: sync transaction model)."""
+
+    __tablename__ = "import_runs"
+
+    run_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("sources.source_id"), nullable=False, index=True
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    mapping_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid, ForeignKey("source_mappings.mapping_id")
+    )
+    trigger: Mapped[str] = mapped_column(
+        Enum(enums.SyncTrigger, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.SyncTrigger.MANUAL.value,
+    )
+    status: Mapped[str] = mapped_column(
+        Enum(enums.ImportRunStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.ImportRunStatus.RUNNING.value,
+    )
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    # read/valid/new/changed/unchanged/missing/ambiguous/blocked/error
+    counts: Mapped[dict] = mapped_column("counts", JSON, nullable=False, default=dict)
+    row_errors: Mapped[list] = mapped_column("row_errors", JSON, nullable=False, default=list)
+    failure_summary: Mapped[str | None] = mapped_column(Text)
+    correlation_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

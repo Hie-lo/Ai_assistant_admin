@@ -19,6 +19,12 @@ PRODUCTS_VIEW = "products.view"
 PRODUCTS_PREVIEW = "products.preview"
 PRODUCTS_MANAGE_MEDIA = "products.manage_media"
 PRODUCTS_MANUAL_CHECK = "products.manual_check"
+PRODUCTS_IMPORT = "products.import"
+PRODUCTS_REVIEW_MAPPING = "products.review_mapping"
+
+# --- Sources (Phase 3) ---
+SOURCES_VIEW = "sources.view"
+SOURCES_MANAGE = "sources.manage"
 
 # --- Posts ---
 POSTS_VIEW = "posts.view"
@@ -82,6 +88,10 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         PRODUCTS_PREVIEW,
         PRODUCTS_MANAGE_MEDIA,
         PRODUCTS_MANUAL_CHECK,
+        PRODUCTS_IMPORT,
+        PRODUCTS_REVIEW_MAPPING,
+        SOURCES_VIEW,
+        SOURCES_MANAGE,
         POSTS_VIEW,
         POSTS_CREATE_MANUAL,
         POSTS_PREVIEW,

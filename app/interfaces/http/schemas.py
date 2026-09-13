@@ -319,3 +319,165 @@ class SubscriptionStatusOut(BaseModel):
     latest: SubscriptionOut | None
     pending_payment: PaymentOut | None
     entitlements: EntitlementsOut
+
+# --- Phase 3: Sources / Products / Review cases ---
+
+
+class SourceCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    kind: str = Field(pattern="^(EXCEL_UPLOAD|GOOGLE_SHEETS)$")
+    external_ref: str | None = Field(default=None, max_length=320)
+    sheet_name: str | None = Field(default=None, max_length=120)
+    range_spec: str | None = Field(default=None, max_length=120)
+    credentials_ref: str | None = Field(default=None, max_length=120)
+    media_authoritative: bool = False
+
+
+class SourceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    source_id: uuid.UUID
+    business_id: uuid.UUID
+    name: str
+    kind: str
+    external_ref: str | None
+    sheet_name: str | None
+    range_spec: str | None
+    status: str
+    media_authoritative: bool
+    last_sync_at: datetime | None
+    last_baseline_count: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MappingEntryIn(BaseModel):
+    column: str = Field(min_length=1, max_length=220)
+    canonical_field: str | None = None
+    field_kind: str = Field(pattern="^(CORE|CUSTOM)$")
+    field_type: str = Field(pattern="^(STRING|NUMBER|BOOLEAN|ENUM|PRICE|STOCK|MEDIA_URL)$")
+    display_name: str = Field(min_length=1, max_length=120)
+    required: bool = False
+    template_exposed: bool = False
+    confidence: float = 0.0
+    evidence: str = ""
+
+
+class MappingProposalRequest(BaseModel):
+    entries: list[MappingEntryIn] = Field(min_length=1, max_length=200)
+
+
+class MappingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    mapping_id: uuid.UUID
+    source_id: uuid.UUID
+    version: int
+    status: str
+    entries: list[dict]
+    created_at: datetime
+
+
+class ProductUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=320)
+    description: str | None = None
+    price: int | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, min_length=3, max_length=8)
+    stock: int | None = Field(default=None, ge=0)
+    category: str | None = Field(default=None, max_length=160)
+    external_id: str | None = Field(default=None, max_length=120)
+    sku: str | None = Field(default=None, max_length=120)
+    barcode: str | None = Field(default=None, max_length=120)
+    attributes: dict[str, str] | None = None
+
+
+class ProductOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    product_id: uuid.UUID
+    business_id: uuid.UUID
+    name: str
+    category: str | None
+    description: str | None
+    price: int | None
+    currency: str
+    stock: int | None
+    external_id: str | None
+    sku: str | None
+    barcode: str | None
+    fingerprint: str | None
+    lifecycle_state: str
+    current_version: int
+    attributes: dict
+    identity_evidence: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProductVersionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    version_id: uuid.UUID
+    product_id: uuid.UUID
+    version_no: int
+    change_categories: list
+    risk_level: str
+    changed_fields: dict
+    trigger: str
+    created_at: datetime
+
+
+class ProductMediaIn(BaseModel):
+    url: str = Field(min_length=1, max_length=1024, pattern="^https?://")
+    origin: str = Field(default="CUSTOMER", pattern="^(SOURCE|CUSTOMER)$")
+
+
+class ProductMediaOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    media_id: uuid.UUID
+    product_id: uuid.UUID
+    media_type: str
+    origin: str
+    url: str
+    position: int
+    status: str
+    created_at: datetime
+
+
+class ReviewCaseOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    case_id: uuid.UUID
+    business_id: uuid.UUID
+    kind: str
+    product_id: uuid.UUID | None
+    source_id: uuid.UUID | None
+    payload: dict
+    status: str
+    resolution: str | None
+    resolved_at: datetime | None
+    created_at: datetime
+
+
+class ReviewCaseResolveRequest(BaseModel):
+    action: str = Field(
+        pattern="^(MERGE_TO|CREATE_NEW|KEEP_EXISTING|REASSIGN_ID"
+        "|APPLY_BY_RESYNC|ACKNOWLEDGE|DISMISS)$"
+    )
+    target_product_id: uuid.UUID | None = None
+
+
+class ImportRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    run_id: uuid.UUID
+    source_id: uuid.UUID
+    mapping_version_id: uuid.UUID | None
+    trigger: str
+    status: str
+    counts: dict
+    row_errors: list
+    failure_summary: str | None
+    started_at: datetime
+    finished_at: datetime | None
