@@ -37,6 +37,17 @@
 - link code single-use; identity conflict across accounts -> 409
 - unknown-email login timing equalized; failed logins audited
 
+### Verification status
+- Local: 51 passed / 2 skipped (service smoke), ruff clean.
+- CI (run 34763142857, commit a56502f): BOTH jobs GREEN on Python 3.13:
+  - Lint + unit (21 tests)
+  - Integration: service pre-flight, `alembic upgrade head` on PostgreSQL 17,
+    and the full integration suite (32 tests incl. auth lockout, RBAC
+    lifecycle, one-time linking codes, audit) against real PostgreSQL + Redis.
+- Bug found and fixed by CI: `create_engine(..., poolclass=Pool)` used the
+  abstract base pool class — first `connect()` raised `NotImplementedError`.
+  Now `QueuePool` explicitly, with a regression unit test.
+
 ### Known decisions/notes
 - Partial unique indexes are Postgres-specific: enforced in the service
   layer (portable) + migration backstop (Postgres). Not declared in model
