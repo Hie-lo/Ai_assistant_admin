@@ -52,6 +52,9 @@ jobs:
     env:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/ai_assistant_ci
       REDIS_URL: redis://localhost:6379/0
+      # Run DB-backed tests against the PostgreSQL service (validates the
+      # Postgres-specific constraints such as partial unique indexes).
+      TEST_BACKEND: postgres
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -61,5 +64,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+      - name: Validate migration DDL on PostgreSQL
+        run: alembic upgrade head
       - name: Integration tests
         run: pytest tests/integration -m integration

@@ -8,8 +8,9 @@ from app.config.settings import Settings
 def test_settings_defaults_are_sane(settings: Settings) -> None:
     assert settings.app_name == "ai-assistant-admin"
     assert settings.environment == "test"
-    assert settings.database_url.startswith("postgresql+psycopg://")
+    assert settings.database_url  # non-empty connection URL
     assert settings.redis_url.startswith("redis://")
+    assert settings.session_cookie_name  # cookie name configured
 
 
 def test_settings_secret_key_has_minimum_length() -> None:

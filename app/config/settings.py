@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     # --- Observability ---
     log_level: str = "INFO"
 
+    # --- Auth / interfaces ---
+    session_cookie_name: str = "ai_session"
+    # Shared token for the internal bot-verify contract (Phase 9). Must be
+    # set to a long random value in real environments.
+    internal_api_token: str = Field(default="", min_length=0)
+
     @property
     def is_prod(self) -> bool:
         return self.environment == "prod"

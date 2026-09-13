@@ -3,6 +3,7 @@
 Runs only in the CI integration job (service containers provide
 ``DATABASE_URL`` and ``REDIS_URL``). Proves the locked dependency set works
 against real infrastructure and that the engine/session/redis wiring is sound.
+Skipped locally where no service environment is configured.
 """
 
 from __future__ import annotations
@@ -14,7 +15,13 @@ from sqlalchemy import text
 
 pytestmark = pytest.mark.integration
 
+requires_services = pytest.mark.skipif(
+    not (os.environ.get("DATABASE_URL") and os.environ.get("REDIS_URL")),
+    reason="requires CI service containers (DATABASE_URL/REDIS_URL)",
+)
 
+
+@requires_services
 def test_postgresql_select_one() -> None:
     from app.infrastructure.db import create_engine_from_url
 
@@ -27,6 +34,7 @@ def test_postgresql_select_one() -> None:
         engine.dispose()
 
 
+@requires_services
 def test_redis_ping() -> None:
     import redis
 

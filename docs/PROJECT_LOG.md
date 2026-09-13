@@ -1,5 +1,95 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-13 — Phase 1 implementation (Identity / Business / RBAC foundation)
+
+### Delivered
+- Domain: enums (account/business/membership/request/platform/lifecycle),
+  permission matrix (34 permissions, 7 owner-only), domain errors with stable
+  machine codes (cross-tenant access reported as 404 to avoid enumeration).
+- Infrastructure: 11 ORM tables (users, user_sessions, businesses,
+  business_types, memberships, admin_invites, admin_access_requests,
+  channel_links, link_codes, account_identities, audit_logs); Argon2id
+  password hashing; session tokens stored only as SHA-256 digests; one-time
+  link codes; invite codes (ambiguous characters excluded, hashed at rest).
+- Application services: auth (register/login/logout/sessions, bounded
+  lockout 5 attempts/15min, timing-equalized unknown-email path), business
+  (create with atomic OWNER membership, fail-closed access), membership
+  (invite lifecycle, request coalescing, transactional approval
+  revalidation, self-approval blocked, revocation revokes all sessions),
+  linking (single-use 10-minute codes, cross-account identity conflict ->
+  409, idempotent re-link), audit (correlation IDs, actor/business/target).
+- HTTP: /api/v1 auth, business, admin, links routes; correlation-id
+  middleware; DomainError -> JSON mapping; internal /links/verify contract
+  protected by shared token (for the Phase 9 bot).
+- First migration `a1b2c4d5e5f6` (additive; seeds business type 'general';
+  Postgres partial unique indexes as backstops).
+- Tests: 50 passing locally (unit + full-stack integration on in-memory
+  SQLite); 2 service smoke tests run in CI against PostgreSQL 17 + Redis 7.
+  CI also validates migration DDL on Postgres (`alembic upgrade head`).
+
+### Failure-first behaviors verified by tests
+- wrong-password lockout persists across requests (commit-before-raise)
+- duplicate admin requests coalesce; single-use invites not consumed by
+  rejected submissions (check-then-consume ordering)
+- revocation revokes the user's sessions (next call 401)
+- cross-business access fails closed with 404
+- self-approval impossible; owner revocation of the OWNER blocked
+- link code single-use; identity conflict across accounts -> 409
+- unknown-email login timing equalized; failed logins audited
+
+### Known decisions/notes
+- Partial unique indexes are Postgres-specific: enforced in the service
+  layer (portable) + migration backstop (Postgres). Not declared in model
+  metadata to keep SQLite test schemas valid.
+- Business type list seeded with 'general'; the owner's actual business
+  types (Understanding Report §10) are still pending.
+- PostgreSQL in dev/CI = 17 (conservative fallback); production target 18
+  per spec (verified before launch, Gate I).
+- Ownership transfer (changing the OWNER) is intentionally not implemented
+  yet: separate high-risk workflow (RBAC spec section 6).
+
+### Rollback
+Revert the Phase 1 commit; the migration has a full downgrade (drops all
+Phase 1 tables). No production data exists yet.
+
+## 2026-09-13 — Phase 1 architecture decisions (owner-approved)
+
+### Decisions (approved by Project Owner, structured approval)
+1. **Web authentication mechanism (V1): EMAIL + PASSWORD.**
+   - Argon2id password hashing (OWASP-recommended).
+   - Server-side sessions (DB-stored, token hash at rest) with expiry and
+     revocation; SameSite cookies. Telegram/Bale identities are LINKED to the
+     Web account later (not the login path in V1).
+   - Login rate limiting: per-user bounded attempts with temporary lockout.
+2. **Cross-interface linking: ONE-TIME CODE.**
+   - Web panel shows a short-lived 6-digit code; the user sends it in the
+     Telegram/Bale bot chat; the bot verifies it against the backend contract.
+   - Never based on username/name matching (per RBAC spec section 16).
+3. **Admin access request discovery: INVITE CODE (primary) + CHANNEL REFERENCE (secondary).**
+   - Invite codes are owner-generated, expiring, use-limited.
+   - Channel reference is accepted only when the channel is already linked to
+     the target Business; ambiguous matches enter review (never guess).
+
+### Impact
+- Phase 1 implementation may proceed: models + migrations, auth, business,
+  membership/RBAC, admin request flow, linking contracts, audit foundation.
+
+## 2026-09-13 — Phase 0 completed
+
+### Baseline delivered (commit on arena branch)
+- 22-document specification package merged from main and validated (22/22).
+- Layered app skeleton (domain/application/infrastructure/interfaces/workers/config).
+- Pydantic Settings; SQLAlchemy engine/session (pool_pre_ping); FastAPI factory
+  with /healthz + /readyz (separate liveness/readiness); Celery app (bounded).
+- Alembic wired to settings + Base.metadata (no migrations yet).
+- Tests: 9/9 unit passing locally (Python 3.11); CI runs ruff + unit on
+  Python 3.13 and integration on PostgreSQL 17 + Redis 7 services.
+- requirements.txt (resolved pins) + requirements.lock.txt (full lock).
+  Final lock re-verified on first green CI (3.13) per Gate F note.
+- Dockerfile (non-root) + docker-compose.yml (postgres 17 fallback, redis,
+  web, worker). Makefile, .env.example, .gitignore, pyproject.toml.
+- Rollback: pure scaffold, no data — revert commit.
+
 ## 2026-09-13 — Owner Approval of Implementation Gates (A–H)
 
 ### Approval record

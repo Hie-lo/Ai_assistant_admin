@@ -24,5 +24,4 @@ def register_models() -> None:
     migrations see the full metadata.
     """
 
-    # Phase 1 will register:
-    # from app.infrastructure.db import models  # noqa: F401
+    from app.infrastructure.db import models  # noqa: F401

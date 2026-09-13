@@ -1,6 +1,14 @@
 # Project Changelog & Architectural Decisions
 # دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-13 — Phase 1 identity/auth decisions approved
+Owner approved: (1) Web auth V1 = email + password with Argon2id hashing and
+server-side expiring/revocable sessions; Telegram/Bale linked later via
+one-time codes. (2) Cross-interface linking = one-time code (never username
+matching). (3) Admin request discovery = invite code (primary) + already-linked
+channel reference (secondary), ambiguous matches go to review.
+Phase 0 baseline (scaffold, CI, migrations infra, Docker) completed the same day.
+
 ## 2026-09-13 — Implementation gates approved (A–H)
 Project Owner approved the implementation gates via structured approval:
 domain contracts (A+B+C+D) as documented; technology stack (F) as proposed;
