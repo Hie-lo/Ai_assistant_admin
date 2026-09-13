@@ -69,6 +69,21 @@ def current_user(
 CurrentUser = Annotated[User, Depends(current_user)]
 
 
+def require_super_admin(user: CurrentUser) -> User:
+    """Platform operator gate (Phase 2).
+
+    Independent of Business membership: super admins manage the plan
+    catalog and verify manual payments across businesses (owner decision
+    2026-09-13). A missing/revoked flag fails closed immediately.
+    """
+    if not user.is_super_admin or user.account_status != "ACTIVE":
+        raise AuthorizationError("Platform operator access required")
+    return user
+
+
+SuperAdmin = Annotated[User, Depends(require_super_admin)]
+
+
 def require_business_permission(permission: str) -> Callable[..., tuple[Business, Membership]]:
     """Dependency factory: (business, membership) or fail closed.
 

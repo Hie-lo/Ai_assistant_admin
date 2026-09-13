@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     # set to a long random value in real environments.
     internal_api_token: str = Field(default="", min_length=0)
 
+    # --- Subscription / billing ---
+    # Owner-approved (2026-09-13): after the billing period ends the
+    # subscription stays usable in GRACE this many days before EXPIRED.
+    subscription_grace_days: int = Field(default=7, ge=0, le=90)
+
     @property
     def is_prod(self) -> bool:
         return self.environment == "prod"

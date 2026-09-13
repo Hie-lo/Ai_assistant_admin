@@ -64,30 +64,16 @@ def _build_engine() -> Engine:
             connect_args={"check_same_thread": False},
         )
         Base.metadata.create_all(engine)
-    _seed_business_types(engine)
+    _seed_reference_data(engine)
     return engine
 
 
-def _seed_business_types(engine: Engine) -> None:
+def _seed_reference_data(engine: Engine) -> None:
     """Mirror the migration seed (create_all does not run migrations)."""
-    from app.infrastructure.db.models import BusinessType
-    from sqlalchemy import select
+    from app.infrastructure.db.seed import seed_reference_data
 
     with engine.connect() as conn:
-        if conn.execute(select(BusinessType.key)).first() is None:
-            conn.execute(
-                BusinessType.__table__.insert().values(
-                    [
-                        {
-                            "key": "general",
-                            "name": "General business",
-                            "description": "Default business type.",
-                            "is_active": True,
-                        }
-                    ]
-                )
-            )
-            conn.commit()
+        seed_reference_data(conn)
 
 
 @pytest.fixture()
@@ -138,6 +124,19 @@ def make_user(db: Session, email: str, password: str = "correct-horse-battery-1"
     from app.application import auth
 
     user = auth.register_user(db, email=email, password=password, display_name=email.split("@")[0])
+    db.commit()
+    return user.user_id
+
+
+def make_super_admin(
+    db: Session, email: str, password: str = "correct-horse-battery-1"
+) -> uuid.UUID:
+    """Create a user and grant the platform-operator flag."""
+    from app.application import auth
+    from app.infrastructure.db.models import User
+
+    user = auth.register_user(db, email=email, password=password, display_name=email.split("@")[0])
+    db.get(User, user.user_id).is_super_admin = True
     db.commit()
     return user.user_id
 

@@ -1,5 +1,41 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-13 — Phase 2 implementation (Subscription / Payment / Entitlement)
+
+### Delivered
+- Plan catalog (operator-managed, no code changes): price/term/limits/AI
+  credits/feature flags; seeded "Starter" plan (IRT, tunable at runtime).
+- Subscription lifecycle: PENDING/ACTIVE/GRACE/EXPIRED/SUSPENDED/CANCELLED/
+  REFUNDED with an explicit audited state machine; one live subscription per
+  business; hourly Celery task moves ACTIVE->GRACE (7-day grace, owner
+  approved) and GRACE->EXPIRED.
+- Manual payments as separate records (spec: payment != entitlement
+  activation): verification by the platform operator (Super Admin flag),
+  amount-mismatch requires an explicit note (audited), double-verification
+  impossible (row lock + pending-payment uniqueness).
+- Entitlement engine: derived immediately before use (RBAC spec section 20:
+  effective permission = role  policy  entitlement  scope); usage-counter
+  registry for Phase 3+ (products/sources/channels/admin seats/storage).
+- AI credit ledger: separate monthly + purchased pools, atomic idempotent
+  consumption (monthly first), auditable append-only transactions.
+- Migration f0e1d2c3b4a5 (additive; Postgres partial unique backstops;
+  starter plan seed).
+- Tests: suite grows 51 -> 110 passing locally (unit: state machine full
+  matrix, calendar clamping, entitlement rules, ledger atomicity/
+  idempotency; integration: full lifecycle, grace renewal crossing a month
+  with a deterministic clock, same-month no-double-grant, plan change,
+  downgrade-over-limit blocking, suspend/reactivate, refund, cross-tenant
+  isolation, operator-only access, audit).
+
+### Notes
+- Subscription expiry never corrupts data: terminal rows are kept as history;
+  a new purchase starts a new row; unused monthly credits are expired (not
+  deleted) in the ledger.
+- Downgrades do not delete data: over-limit usage blocks NEW operations via
+  the entitlement engine until usage is reduced (spec section 8).
+- The owner's real plan names/prices still need to be set through the plan
+  endpoints (the Starter values are placeholders).
+
 ## 2026-09-13 — Phase 1 implementation (Identity / Business / RBAC foundation)
 
 ### Delivered

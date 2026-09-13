@@ -18,7 +18,7 @@ celery = Celery(
     settings.app_name,
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
-    include=[],
+    include=["app.workers.tasks"],
 )
 
 celery.conf.update(
@@ -31,4 +31,12 @@ celery.conf.update(
     # tasks set their own ``retry``/``autoretry_for`` with explicit bounds.
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    # Subscription cycle processing: hourly is enough for day-granularity
+    # billing (periods end at day boundaries; grace is 7 days).
+    beat_schedule={
+        "subscription-cycles-hourly": {
+            "task": "billing.process_subscription_cycles",
+            "schedule": 3600.0,
+        },
+    },
 )

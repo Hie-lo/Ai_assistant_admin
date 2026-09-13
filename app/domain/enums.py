@@ -72,6 +72,72 @@ class ChannelLinkStatus(str_enum):
     UNLINKED = "UNLINKED"
 
 
+class BillingPeriod(str_enum):
+    MONTHLY = "monthly"
+
+
+class SubscriptionStatus(str_enum):
+    PENDING = "PENDING"
+    ACTIVE = "ACTIVE"
+    GRACE = "GRACE"
+    EXPIRED = "EXPIRED"
+    SUSPENDED = "SUSPENDED"
+    CANCELLED = "CANCELLED"
+    REFUNDED = "REFUNDED"
+
+
+class PaymentStatus(str_enum):
+    PENDING = "PENDING"
+    VERIFIED = "VERIFIED"
+    REJECTED = "REJECTED"
+
+
+class PaymentPurpose(str_enum):
+    NEW = "NEW"
+    RENEWAL = "RENEWAL"
+    PLAN_CHANGE = "PLAN_CHANGE"
+
+
+class CreditPoolType(str_enum):
+    MONTHLY = "MONTHLY"
+    PURCHASED = "PURCHASED"
+
+
+class CreditDirection(str_enum):
+    GRANT = "GRANT"
+    CONSUME = "CONSUME"
+    REFUND = "REFUND"
+    EXPIRE = "EXPIRE"
+
+
+class PresetCustomizationLevel(str_enum):
+    NONE = "none"
+    BASIC = "basic"
+    FULL = "full"
+
+
+class ReportLevel(str_enum):
+    NONE = "none"
+    BASIC = "basic"
+    FULL = "full"
+
+
+#: Pool period label for non-expiring purchased credit pools.
+PURCHASED_PERIOD_LABEL = "LIFETIME"
+
+
+#: Subscription statuses that are "live" (block a second concurrent one per
+#: business and are what an entitlement can be active under).
+SUBSCRIPTION_NON_TERMINAL: frozenset[SubscriptionStatus] = frozenset(
+    {
+        SubscriptionStatus.PENDING,
+        SubscriptionStatus.ACTIVE,
+        SubscriptionStatus.GRACE,
+        SubscriptionStatus.SUSPENDED,
+    }
+)
+
+
 class AuditOutcome(str_enum):
     SUCCESS = "SUCCESS"
     FAILURE = "FAILURE"

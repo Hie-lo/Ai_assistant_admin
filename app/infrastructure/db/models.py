@@ -69,6 +69,10 @@ class User(Base):
     failed_login_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # Platform-level operator (Phase 2): manages the plan catalog and
+    # verifies manual payments. Independent of Business membership/RBAC.
+    is_super_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     )
@@ -318,6 +322,198 @@ class AuditLog(Base):
     )
     correlation_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     # Named meta_data to avoid clashing with SQLAlchemy's DeclarativeBase.metadata.
+    meta_data: Mapped[dict | None] = mapped_column("meta_data", JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+
+# --- Phase 2: Subscription / Payment / Entitlement --------------------------
+
+
+class Plan(Base):
+    """Commercial plan catalog entry (operator-managed, no code changes).
+
+    Plans define price + term and the entitlement limits applied to a
+    business while its subscription on this plan is live.
+    """
+
+    __tablename__ = "plans"
+
+    plan_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="IRT")
+    price: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    billing_period: Mapped[str] = mapped_column(String(16), nullable=False, default="monthly")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    # Entitlement limits (None = unlimited).
+    product_limit: Mapped[int | None] = mapped_column(Integer)
+    source_limit: Mapped[int | None] = mapped_column(Integer)
+    channel_limit: Mapped[int | None] = mapped_column(Integer)
+    sync_frequency_per_day: Mapped[int | None] = mapped_column(Integer)
+    ai_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    ai_monthly_credits: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    preset_customization: Mapped[str] = mapped_column(String(16), nullable=False, default="none")
+    report_level: Mapped[str] = mapped_column(String(16), nullable=False, default="none")
+    media_storage_limit_bytes: Mapped[int | None] = mapped_column(Integer)
+    admin_seat_limit: Mapped[int | None] = mapped_column(Integer)
+    feature_flags: Mapped[dict] = mapped_column("feature_flags", JSON, nullable=False, default=dict)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+
+
+class Subscription(Base):
+    """A business's subscription lifecycle record (one row per purchase cycle).
+
+    Terminal rows (EXPIRED/CANCELLED/REFUNDED) are kept as history; a new
+    purchase after a terminal state is a NEW row. At most one non-terminal
+    row exists per business (service layer + Postgres partial unique index
+    backstop, same pattern as the single-Owner rule).
+    """
+
+    __tablename__ = "subscriptions"
+
+    subscription_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    plan_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("plans.plan_id"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        Enum(enums.SubscriptionStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.SubscriptionStatus.PENDING.value,
+    )
+    # Plan requested via a pending payment (upgrade/downgrade), applied when
+    # that payment is verified.
+    pending_plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid, ForeignKey("plans.plan_id")
+    )
+
+    period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    grace_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    created_by: Mapped[uuid.UUID] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+
+
+class Payment(Base):
+    """Manual-payment record, kept separate from entitlement activation.
+
+    No card/bank secrets are stored: only the operator-entered reference and
+    amounts (spec section 5; threat model: no secrets in app tables/logs).
+    At most one PENDING payment per subscription (service layer + Postgres
+    partial unique index backstop).
+    """
+
+    __tablename__ = "payments"
+
+    payment_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("subscriptions.subscription_id"), nullable=False, index=True
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    purpose: Mapped[str] = mapped_column(
+        Enum(enums.PaymentPurpose, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.PaymentPurpose.NEW.value,
+    )
+    status: Mapped[str] = mapped_column(
+        Enum(enums.PaymentStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.PaymentStatus.PENDING.value,
+    )
+    expected_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="IRT")
+    amount_paid: Mapped[int | None] = mapped_column(Integer)
+    reference: Mapped[str | None] = mapped_column(String(120))
+    note: Mapped[str | None] = mapped_column(Text)
+
+    initiated_by: Mapped[uuid.UUID] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+
+
+class CreditPool(Base):
+    """A business's credit pool (monthly grant or purchased top-up).
+
+    Monthly and purchased pools are separate ledgers (spec section 9);
+    ``period_label`` is ``YYYY-MM`` for monthly pools and ``LIFETIME`` for
+    the purchased pool.
+    """
+
+    __tablename__ = "credit_pools"
+    __table_args__ = (
+        UniqueConstraint("business_id", "pool_type", "period_label", name="uq_credit_pool"),
+    )
+
+    pool_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    pool_type: Mapped[str] = mapped_column(
+        Enum(enums.CreditPoolType, native_enum=False, validate_strings=True), nullable=False
+    )
+    period_label: Mapped[str] = mapped_column(String(16), nullable=False)
+    granted_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    remaining: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+
+
+class CreditTransaction(Base):
+    """Append-only credit ledger entry (auditable credit history)."""
+
+    __tablename__ = "credit_transactions"
+
+    tx_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    pool_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("credit_pools.pool_id"), nullable=False, index=True
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    direction: Mapped[str] = mapped_column(
+        Enum(enums.CreditDirection, native_enum=False, validate_strings=True), nullable=False
+    )
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Caller-supplied idempotency key: re-running the same operation returns
+    # the original outcome instead of double-consuming.
+    idempotency_key: Mapped[str | None] = mapped_column(String(120), unique=True, index=True)
+    reference: Mapped[str | None] = mapped_column(String(120), index=True)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
     meta_data: Mapped[dict | None] = mapped_column("meta_data", JSON)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sa.func.now()

@@ -110,6 +110,11 @@ def create_app() -> FastAPI:
     app.include_router(routes_admin.router)
     app.include_router(routes_links.router)
 
+    # --- Phase 2 router (billing/subscription/entitlement) ---
+    from app.interfaces.http import routes_billing
+
+    app.include_router(routes_billing.router)
+
     return app
 
 

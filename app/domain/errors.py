@@ -74,3 +74,62 @@ class BusinessNotAccessible(AuthorizationError):
     code = "business_not_found"
     http_status = 404
     message = "Business not found"
+
+
+class EntitlementDenied(AuthorizationError):
+    """The business's active subscription does not permit this operation.
+
+    Entitlement is a layer above RBAC: the effective permission is
+    role permission ∩ business policy  subscription entitlement ∩ scope.
+    UI visibility is never the security boundary — this check is
+    server-side and happens immediately before execution.
+    """
+
+    code = "entitlement_denied"
+    http_status = 403
+
+    def __init__(self, reason: str = "not covered by the active subscription") -> None:
+        super().__init__(reason)
+
+
+class CreditInsufficient(DomainError):
+    """Requested AI credits exceed the available credit pools."""
+
+    code = "credit_insufficient"
+    http_status = 409
+
+    def __init__(self, requested: int, available: int) -> None:
+        super().__init__(f"Requested {requested} credits but only {available} available")
+        self.requested = requested
+        self.available = available
+
+
+class SubscriptionTransitionInvalid(DomainError):
+    """The requested subscription state transition is not allowed."""
+
+    code = "subscription_transition_invalid"
+    http_status = 409
+
+
+class PaymentAlreadySettled(DomainError):
+    """The payment was already verified or rejected."""
+
+    code = "payment_already_settled"
+    http_status = 409
+
+
+class PendingPaymentExists(DomainError):
+    """A payment is already pending for this subscription."""
+
+    code = "pending_payment_exists"
+    http_status = 409
+
+
+class PlanNotFound(NotFoundError):
+    code = "plan_not_found"
+    message = "Plan not found"
+
+
+class SubscriptionNotFound(NotFoundError):
+    code = "subscription_not_found"
+    message = "Subscription not found"

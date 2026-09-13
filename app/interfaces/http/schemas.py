@@ -163,3 +163,159 @@ class VerifyLinkCodeRequest(BaseModel):
 
 class VerifyLinkCodeOut(BaseModel):
     user_id: uuid.UUID
+
+
+# --- Phase 2: Plans / Subscriptions / Payments / Credits ---
+
+_PLAN_CODE_PATTERN = r"^[a-z0-9][a-z0-9_-]{0,39}$"
+
+
+class PlanOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    plan_id: uuid.UUID
+    code: str
+    name: str
+    currency: str
+    price: int
+    billing_period: str
+    is_active: bool
+    product_limit: int | None
+    source_limit: int | None
+    channel_limit: int | None
+    sync_frequency_per_day: int | None
+    ai_available: bool
+    ai_monthly_credits: int
+    preset_customization: str
+    report_level: str
+    media_storage_limit_bytes: int | None
+    admin_seat_limit: int | None
+    feature_flags: dict
+
+
+class PlanRequest(BaseModel):
+    """Create or update a plan (operator). ``code`` is create-only."""
+
+    code: str | None = Field(default=None, pattern=_PLAN_CODE_PATTERN)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    currency: str | None = Field(default=None, max_length=8)
+    price: int | None = Field(default=None, ge=0)
+    billing_period: str | None = "monthly"
+    is_active: bool | None = None
+    product_limit: int | None = Field(default=None, gt=0)
+    source_limit: int | None = Field(default=None, gt=0)
+    channel_limit: int | None = Field(default=None, gt=0)
+    sync_frequency_per_day: int | None = Field(default=None, gt=0)
+    ai_available: bool | None = None
+    ai_monthly_credits: int | None = Field(default=None, ge=0)
+    preset_customization: str | None = None
+    report_level: str | None = None
+    media_storage_limit_bytes: int | None = Field(default=None, gt=0)
+    admin_seat_limit: int | None = Field(default=None, gt=0)
+    feature_flags: dict | None = None
+
+
+class SubscriptionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    subscription_id: uuid.UUID
+    business_id: uuid.UUID
+    # Computed from the joined plan rows (not ORM columns) — populated after
+    # model_validate, hence the defaults.
+    plan_code: str | None = None
+    status: str
+    pending_plan_code: str | None = None
+    period_start: datetime | None
+    period_end: datetime | None
+    grace_end: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SubscriptionRequest(BaseModel):
+    plan_code: str = Field(min_length=1, max_length=40)
+
+
+class PaymentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    payment_id: uuid.UUID
+    subscription_id: uuid.UUID
+    purpose: str
+    status: str
+    expected_amount: int
+    currency: str
+    amount_paid: int | None
+    reference: str | None
+    note: str | None
+    created_at: datetime
+    verified_at: datetime | None
+
+
+class PaymentVerifyRequest(BaseModel):
+    amount_paid: int | None = Field(default=None, ge=0)
+    reference: str | None = Field(default=None, max_length=120)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class PaymentRejectRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class ReasonRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class CreditPoolOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    pool_id: uuid.UUID
+    pool_type: str
+    period_label: str
+    granted_total: int
+    remaining: int
+
+
+class CreditTransactionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    tx_id: uuid.UUID
+    direction: str
+    amount: int
+    idempotency_key: str | None
+    reference: str | None
+    created_at: datetime
+
+
+class CreditsOut(BaseModel):
+    pools: list[CreditPoolOut]
+    transactions: list[CreditTransactionOut]
+
+
+class TopUpRequest(BaseModel):
+    amount: int = Field(gt=0)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class EntitlementsOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    has_active: bool
+    subscription_status: str | None
+    plan_code: str | None
+    product_limit: int | None
+    source_limit: int | None
+    channel_limit: int | None
+    ai_available: bool
+    ai_monthly_credits: int
+    preset_customization: str
+    report_level: str
+    admin_seat_limit: int | None
+    feature_flags: dict
+
+
+class SubscriptionStatusOut(BaseModel):
+    subscription: SubscriptionOut | None
+    latest: SubscriptionOut | None
+    pending_payment: PaymentOut | None
+    entitlements: EntitlementsOut

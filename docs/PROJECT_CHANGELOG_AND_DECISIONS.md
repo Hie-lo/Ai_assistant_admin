@@ -1,6 +1,27 @@
 # Project Changelog & Architectural Decisions
 # دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-13 — Phase 2 subscription/payment/entitlement decisions approved
+Owner approved (structured questions):
+1. Plans V1: full catalog mechanism + one seeded "Starter" plan with sensible
+   placeholder limits; the owner tunes prices/limits at runtime through the
+   plan-management endpoints (no code changes).
+2. Currency: Toman (IRT).
+3. Grace period: 7 days after the billing period ends (GRACE -> EXPIRED).
+4. Manual payment verification is performed by the PLATFORM OPERATOR
+   (Super Admin), not by the business owner. This adds a platform-level
+   `users.is_super_admin` flag, independent of business RBAC.
+Model decisions (documented for the record):
+- One live (non-terminal) subscription per business; one PENDING payment per
+  subscription (service layer + Postgres partial unique index backstops).
+- Plan change is an attributes change, not a lifecycle transition; renewal
+  inside the same calendar month reuses the monthly credit pool (no double
+  grant); cross-month renewal expires the old pool and grants the new one.
+- Credit consumption priority: monthly pool before purchased pool; refunds
+  go to the purchased pool (they survive month rollover).
+- Entitlements are derived immediately before privileged operations; Phase 3+
+  registers usage counters per limit key in the domain registry.
+
 ## 2026-09-13 — Phase 1 identity/auth decisions approved
 Owner approved: (1) Web auth V1 = email + password with Argon2id hashing and
 server-side expiring/revocable sessions; Telegram/Bale linked later via
