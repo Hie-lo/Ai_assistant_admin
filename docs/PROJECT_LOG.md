@@ -1,5 +1,70 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-14 — Phase 4 implementation (Content / Presets / AI)
+
+### Delivered
+- Domain (pure, framework-free): content block model with ownership
+  classification (SYSTEM/CUSTOMER/STATIC/DERIVED), a strict allowlisted
+  token grammar ({field}, {attr.<key>}, {ai_<key>}) with injection-safe
+  two-pass resolution (values are never re-parsed), deterministic
+  rendering, and priority-ordered length handling (identity >
+  price/stock > contact > attributes > AI > hashtags > decorative;
+  blocks with a clear reason instead of silent truncation). AI policy:
+  bounded 3-attempt retry (transient + invalid output), reuse rule for
+  APPROVED artifacts by (product, key, definition version,
+  declared-inputs fingerprint), refund policy, automatic-mode
+  eligibility.
+- AI providers behind one contract: deterministic offline TemplateProvider
+  (V1 default, Persian-aware, factual — never invents price/stock/SKU) and
+  an OpenAI-compatible provider (base URL + API key + model from env; key
+  and payloads never logged; 429/5xx/timeout -> transient, 4xx ->
+  permanent).
+- Presets: business-type presets (structured block lists) with immutable
+  versions (DRAFT/ACTIVE/SUPERSEDED) managed by the platform operator; a
+  seeded default preset per business type. Per-product presets — a
+  completely separate section (own tables/routes/permission) — gated by
+  the plan flag product_preset_eligible (top-plan entitlement,
+  operator-managed at runtime; Starter off by default).
+- AI output registry: versioned, configurable definitions (key, prompt
+  template, declared inputs, max length, cost credits); seeded
+  ai_description + ai_short_title. Generation flow in one transaction:
+  entitlement (plan AI) -> reuse check -> atomic credit consumption ->
+  bounded provider attempts -> validation -> PENDING_APPROVAL artifact
+  (or refund + manual fallback on total failure). Edit/approve/reject
+  lifecycle; manual edit of an APPROVED artifact creates a new PENDING.
+- Preview: same deterministic renderer (publication will reuse it in
+  Phase 5) resolving product preset (top-plan) -> business-type default
+  -> built-in fallback; platform-neutral text + media manifest + per-block
+  diagnostics + length fit.
+- Automatic mode: business-level toggle + tested eligibility logic (the
+  trigger lands with the sync/publication phases per the roadmap).
+- HTTP: 18 business/operator endpoints (admin presets + AI definitions;
+  business presets, product presets CRUD/assign, AI generate/retry/
+  edit/approve/reject/list, automatic toggle, preview). New permission
+  product_presets.manage (owner + manager).
+- Migration d8e9f0a1b2c3 (additive: 6 tables + 3 columns; seeds AI
+  definitions + default presets).
+- Tests: suite grows 199 -> 244 locally (unit: token grammar/allowlist,
+  injection safety, priority trimming, block render, retry bounds, refund
+  policy, reuse rule, template provider determinism/length; integration:
+  admin preset lifecycle + versioning + super-admin gate, business preset
+  visibility, preview + AI approve flow, reuse without double charge,
+  regeneration on input change, transient/invalid/permanent failure with
+  credit refund, edit/approve/reject/retry lifecycle, plan-without-AI
+  403, no-credits 409, product presets top-plan gate + non-destructive
+  downgrade + clear, cross-tenant 404, narrow-profile 403, automatic
+  toggle, definition versioning never auto-regenerates).
+
+### Notes
+- Real AI credentials (OpenAI-compatible endpoint) are configured
+  operationally via env later; the built-in template provider makes the
+  feature usable from day one without external calls.
+- Per-product presets are deliberately a separate section and a top-plan
+  exclusive (owner decision); the plan flag lets the operator move the
+  entitlement between plans at runtime without code changes.
+- V1 preview is platform-neutral; per-platform previews + actual
+  publication reuse this exact renderer in Phases 5-7.
+
 ## 2026-09-13 — Phase 3 implementation (Source / Product core)
 
 ### Delivered

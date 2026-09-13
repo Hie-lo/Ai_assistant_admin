@@ -120,6 +120,12 @@ def create_app() -> FastAPI:
 
     app.include_router(routes_products.router)
 
+    # --- Phase 4 routers (content/presets/AI) ---
+    from app.interfaces.http import routes_content
+
+    app.include_router(routes_content.router)
+    app.include_router(routes_content.admin_router)
+
     # Register authoritative entitlement usage counters (products, sources).
     from app.application import usage  # noqa: F401
 

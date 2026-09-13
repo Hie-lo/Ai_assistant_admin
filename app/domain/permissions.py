@@ -26,6 +26,12 @@ PRODUCTS_REVIEW_MAPPING = "products.review_mapping"
 SOURCES_VIEW = "sources.view"
 SOURCES_MANAGE = "sources.manage"
 
+# --- Content presets (Phase 4) ---
+# Business-type presets are managed by the platform operator (super admin).
+# Per-product presets are a top-plan entitlement (plan gate) + this
+# business-level permission (owner + manager profiles by default).
+PRODUCT_PRESETS_MANAGE = "product_presets.manage"
+
 # --- Posts ---
 POSTS_VIEW = "posts.view"
 POSTS_CREATE_MANUAL = "posts.create_manual"
@@ -92,6 +98,7 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         PRODUCTS_REVIEW_MAPPING,
         SOURCES_VIEW,
         SOURCES_MANAGE,
+        PRODUCT_PRESETS_MANAGE,
         POSTS_VIEW,
         POSTS_CREATE_MANUAL,
         POSTS_PREVIEW,

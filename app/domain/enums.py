@@ -265,3 +265,54 @@ class FieldType(str_enum):
 
 class SyncTrigger(str_enum):
     MANUAL = "MANUAL"
+
+
+# --- Content / AI (Phase 4) ---
+
+
+class PresetVersionStatus(str_enum):
+    """Lifecycle of one preset version (mirrors source mapping versions)."""
+
+    DRAFT = "DRAFT"
+    ACTIVE = "ACTIVE"
+    SUPERSEDED = "SUPERSEDED"
+
+
+class BlockType(str_enum):
+    """Allowlisted content block types (Post & Publication spec section 4)."""
+
+    STATIC_TEXT = "STATIC_TEXT"
+    PRODUCT_FIELD = "PRODUCT_FIELD"
+    CUSTOM_FIELD = "CUSTOM_FIELD"
+    AI_OUTPUT = "AI_OUTPUT"
+    HASHTAG_SET = "HASHTAG_SET"
+    CONTACT = "CONTACT"
+    DATE = "DATE"
+    MEDIA_REFERENCE = "MEDIA_REFERENCE"
+    SEPARATOR = "SEPARATOR"
+
+
+class BlockOwnership(str_enum):
+    """Managed vs non-managed content classification (spec section 5)."""
+
+    SYSTEM_MANAGED = "SYSTEM_MANAGED"
+    CUSTOMER_MANAGED = "CUSTOMER_MANAGED"
+    STATIC = "STATIC"
+    DERIVED = "DERIVED"
+
+
+class AIArtifactStatus(str_enum):
+    """AI output artifact lifecycle (AI spec sections 5-7)."""
+
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    SUPERSEDED = "SUPERSEDED"
+
+
+class AIFailureKind(str_enum):
+    """Classification of a failed generation (drives refund + retry policy)."""
+
+    TRANSIENT = "TRANSIENT"
+    PERMANENT = "PERMANENT"
+    INVALID_OUTPUT = "INVALID_OUTPUT"

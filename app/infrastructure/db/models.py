@@ -110,6 +110,11 @@ class Business(Base):
         nullable=False,
         default=enums.BusinessLifecycle.ACTIVE.value,
     )
+    # Phase 4: automatic AI generation toggle (owner-approved; the trigger
+    # itself lands with the sync engine in Phase 8 — this stores intent).
+    ai_automatic_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     )
@@ -354,6 +359,12 @@ class Plan(Base):
     sync_frequency_per_day: Mapped[int | None] = mapped_column(Integer)
     ai_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     ai_monthly_credits: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Phase 4 (owner-approved 2026-09-13): per-product presets are an
+    # exclusive entitlement of the top-tier plan; operator enables it per
+    # plan at runtime (no code change), exactly like other limits.
+    product_preset_eligible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     preset_customization: Mapped[str] = mapped_column(String(16), nullable=False, default="none")
     report_level: Mapped[str] = mapped_column(String(16), nullable=False, default="none")
     media_storage_limit_bytes: Mapped[int | None] = mapped_column(Integer)
@@ -672,6 +683,11 @@ class Product(Base):
     attributes: Mapped[dict] = mapped_column("attributes", JSON, nullable=False, default=dict)
     # Compact identity evidence of the last resolution (explainable).
     identity_evidence: Mapped[dict | None] = mapped_column("identity_evidence", JSON)
+    # Phase 4: optional per-product preset (owner-approved: completely
+    # separate from business-type presets; top-plan entitlement only).
+    product_preset_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid, ForeignKey("product_presets.product_preset_id"), index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     )
@@ -820,3 +836,183 @@ class ImportRun(Base):
         DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Content / Presets / AI output registry
+# ---------------------------------------------------------------------------
+
+
+class Preset(Base):
+    """A versioned, platform-neutral content preset for a business type.
+
+    Presets are structured block lists (``preset_versions.blocks``), not
+    opaque strings. Each supported business type has a default preset.
+    """
+
+    __tablename__ = "presets"
+
+    preset_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    business_type_key: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_types.key"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+    __table_args__ = (UniqueConstraint("business_type_key", "name", name="uq_presets_type_name"),)
+
+
+class PresetVersion(Base):
+    """Immutable snapshot of one preset's block list."""
+
+    __tablename__ = "preset_versions"
+
+    version_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    preset_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("presets.preset_id"), nullable=False, index=True
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    blocks: Mapped[list] = mapped_column("blocks", JSON, nullable=False, default=list)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        Enum(enums.PresetVersionStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.PresetVersionStatus.DRAFT.value,
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    __table_args__ = (UniqueConstraint("preset_id", "version", name="uq_preset_versions_no"),)
+
+
+class ProductPreset(Base):
+    """Per-product preset — a completely separate section from business-type
+    presets (owner decision 2026-09-13). Top-plan entitlement only."""
+
+    __tablename__ = "product_presets"
+
+    product_preset_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
+    )
+    __table_args__ = (UniqueConstraint("business_id", "name", name="uq_product_presets_name"),)
+
+
+class ProductPresetVersion(Base):
+    """Immutable snapshot of one per-product preset's block list."""
+
+    __tablename__ = "product_preset_versions"
+
+    version_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    product_preset_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("product_presets.product_preset_id"), nullable=False, index=True
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    blocks: Mapped[list] = mapped_column("blocks", JSON, nullable=False, default=list)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        Enum(enums.PresetVersionStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.PresetVersionStatus.DRAFT.value,
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    __table_args__ = (
+        UniqueConstraint("product_preset_id", "version", name="uq_ppreset_versions_no"),
+    )
+
+
+class AIOutputDefinition(Base):
+    """A configurable, versioned AI output definition (not hard-coded).
+
+    Prompt/policy changes create a NEW version; historical artifacts keep
+    referencing the version that produced them (AI spec sections 2-3, 15).
+    """
+
+    __tablename__ = "ai_output_definitions"
+
+    definition_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    prompt_template: Mapped[str] = mapped_column(Text, nullable=False)
+    input_fields: Mapped[list] = mapped_column("input_fields", JSON, nullable=False, default=list)
+    max_output_length: Mapped[int] = mapped_column(Integer, nullable=False, default=800)
+    # provider/model policy, cost policy, retry policy (conceptual fields).
+    provider_policy: Mapped[str | None] = mapped_column(String(64))
+    cost_credits: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    retry_policy: Mapped[str | None] = mapped_column(String(64))
+    allowed_contexts: Mapped[list | None] = mapped_column("allowed_contexts", JSON)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    __table_args__ = (UniqueConstraint("key", "version", name="uq_ai_defs_key_version"),)
+
+
+class AIOutputArtifact(Base):
+    """A generated/approved AI output bound to a product + definition version.
+
+    Reuse rule (AI spec section 6): an APPROVED artifact whose source
+    dependency fingerprint is unchanged is reused; a prompt/model change
+    must never auto-regenerate it.
+    """
+
+    __tablename__ = "ai_output_artifacts"
+
+    artifact_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("products.product_id"), nullable=False, index=True
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id"), nullable=False, index=True
+    )
+    output_definition_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid, ForeignKey("ai_output_definitions.definition_id")
+    )
+    output_definition_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    output_definition_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_dependency_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    generated_value: Mapped[str] = mapped_column(Text, nullable=False)
+    approved_value: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        Enum(enums.AIArtifactStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.AIArtifactStatus.PENDING_APPROVAL.value,
+    )
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    model: Mapped[str | None] = mapped_column(String(120))
+    provider: Mapped[str | None] = mapped_column(String(48))
+    prompt_chars: Mapped[int | None] = mapped_column(Integer)
+    completion_chars: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )

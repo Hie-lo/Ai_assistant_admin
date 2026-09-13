@@ -132,6 +132,7 @@ class Entitlements:
     sync_frequency_per_day: int | None = None
     ai_available: bool = False
     ai_monthly_credits: int = 0
+    product_preset_eligible: bool = False
     preset_customization: str = "none"
     report_level: str = "none"
     media_storage_limit_bytes: int | None = None

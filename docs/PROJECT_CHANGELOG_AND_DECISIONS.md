@@ -1,6 +1,59 @@
 # Project Changelog & Architectural Decisions
 # دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-14 — Phase 4 content/AI decisions approved
+Owner approved (6 structured questions; 5 recommended + 1 extension):
+1. AI provider: deterministic built-in template generator NOW (offline,
+   no keys) + a ready OpenAI-compatible endpoint configured operationally
+   later via env (same pattern as Google Sheets credentials).
+2. Presets: global, versioned presets per business type (project-admin
+   managed, seeded defaults) — PLUS owner extension: OPTIONAL per-product
+   presets in a COMPLETELY SEPARATE section (own tables/routes/permission),
+   exclusive to the TOP-tier plan (plan flag product_preset_eligible,
+   operator-managed at runtime; Starter starts off).
+3. AI cost: 1 credit per generation (regardless of length); infrastructure
+   failures that produce no artifact are refunded; user rejection is NOT
+   refunded (AI spec section 12).
+4. Automatic mode: toggle + eligibility logic now; the actual trigger
+   lands with the sync/publication phases per the roadmap (no auto
+   generation in Phase 4).
+5. Approval: explicit human approval required (PENDING -> APPROVED);
+   unapproved AI output never reaches preview/publication; editable before
+   and after storage (editing an APPROVED artifact creates a new PENDING).
+6. Preview: platform-neutral render + length diagnostics now;
+   per-platform previews arrive with the adapters (Phase 5), same renderer.
+
+Model decisions (documented for the record):
+- Presets are structured BLOCK lists (typed + ownership-classified), not
+  opaque strings; historical versions are immutable (DRAFT/ACTIVE/
+  SUPERSEDED); one default preset per business type.
+- Token grammar is a strict allowlist: {product_field}, {attr.<key>},
+  {ai_<definition_key>}; parsed once, values substituted as inert data
+  (prompt-injection safe); unknown tokens rejected at save time.
+- Renderer = the single deterministic path for preview AND publication
+  (spec sections 7/23); length handling trims by approved priority
+  (identity > price/stock > contact > attributes > AI > hashtags >
+  decorative) and BLOCKS with a clear reason rather than silent truncation.
+- AI reuse: only an APPROVED artifact for the same (product, key,
+  definition version, declared-inputs fingerprint) is reused; a
+  prompt/model change never auto-regenerates existing content; declared
+  inputs only participate in the fingerprint (price edit does not
+  invalidate a description artifact).
+- Generation = one transaction: consume credit -> bounded 3 attempts
+  (transient + invalid-output retryable, permanent stops) -> validate ->
+  store PENDING; total failure refunds the credit (no orphaned
+  deductions); AI never writes product facts.
+- Product-preset resolution in preview: assigned product preset (when
+  plan-eligible + active version) overrides the business-type default;
+  downgrade/missing degrades to the default with a warning —
+  non-destructive; clearing an assignment never requires entitlement.
+- New business permission product_presets.manage (owner + manager);
+  business-type presets + AI definition registry are platform-operator
+  (super admin) actions.
+- Migration d8e9f0a1b2c3: additive (6 tables + 3 columns), seeds the
+  default AI definitions (ai_description, ai_short_title) and a default
+  preset per business type.
+
 ## 2026-09-13 — Phase 3 source/product core decisions approved
 Owner approved (6 structured questions, all recommended options):
 1. Identity algorithm: priority external_id -> SKU -> barcode ->

@@ -63,6 +63,16 @@ class Settings(BaseSettings):
     # subscription stays usable in GRACE this many days before EXPIRED.
     subscription_grace_days: int = Field(default=7, ge=0, le=90)
 
+    # --- AI provider (Phase 4) ---
+    # "template" (default, offline/deterministic) or "openai_compatible".
+    # Real credentials are configured operationally via environment; the
+    # key is never logged (AI spec + developer directive rule 14).
+    ai_provider: str = "template"
+    ai_openai_base_url: str = ""
+    ai_openai_api_key: str = ""
+    ai_openai_model: str = "gpt-4o-mini"
+    ai_request_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+
     @property
     def is_prod(self) -> bool:
         return self.environment == "prod"

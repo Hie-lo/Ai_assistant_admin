@@ -62,6 +62,7 @@ def get_entitlements(db: Session, *, business_id: uuid.UUID) -> Entitlements:
         sync_frequency_per_day=plan.sync_frequency_per_day,
         ai_available=plan.ai_available,
         ai_monthly_credits=plan.ai_monthly_credits,
+        product_preset_eligible=plan.product_preset_eligible,
         preset_customization=plan.preset_customization,
         report_level=plan.report_level,
         media_storage_limit_bytes=plan.media_storage_limit_bytes,

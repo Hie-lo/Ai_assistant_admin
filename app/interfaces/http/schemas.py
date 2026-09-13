@@ -186,6 +186,7 @@ class PlanOut(BaseModel):
     sync_frequency_per_day: int | None
     ai_available: bool
     ai_monthly_credits: int
+    product_preset_eligible: bool
     preset_customization: str
     report_level: str
     media_storage_limit_bytes: int | None
@@ -208,6 +209,7 @@ class PlanRequest(BaseModel):
     sync_frequency_per_day: int | None = Field(default=None, gt=0)
     ai_available: bool | None = None
     ai_monthly_credits: int | None = Field(default=None, ge=0)
+    product_preset_eligible: bool | None = None
     preset_customization: str | None = None
     report_level: str | None = None
     media_storage_limit_bytes: int | None = Field(default=None, gt=0)
@@ -481,3 +483,198 @@ class ImportRunOut(BaseModel):
     failure_summary: str | None
     started_at: datetime
     finished_at: datetime | None
+
+
+# --- Phase 4: Content / Presets / AI ---
+
+
+class PresetBlockIn(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    type: str = Field(min_length=1, max_length=32)
+    ownership: str = Field(default="STATIC", min_length=1, max_length=32)
+    payload: dict = Field(default_factory=dict)
+
+
+class PresetCreateRequest(BaseModel):
+    business_type_key: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=160)
+    description: str | None = None
+    is_default: bool = False
+    blocks: list[PresetBlockIn] = Field(min_length=1, max_length=64)
+
+
+class PresetVersionRequest(BaseModel):
+    blocks: list[PresetBlockIn] = Field(min_length=1, max_length=64)
+
+
+class PresetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    preset_id: uuid.UUID
+    business_type_key: str
+    name: str
+    description: str | None
+    is_default: bool
+    created_at: datetime
+
+
+class PresetVersionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    version_id: uuid.UUID
+    preset_id: uuid.UUID
+    version: int
+    blocks: list
+    content_hash: str
+    status: str
+    created_at: datetime
+
+
+class PresetDetailOut(PresetOut):
+    versions: list[PresetVersionOut] = []
+    active_version: int | None = None
+
+
+class BusinessTypePresetOut(BaseModel):
+    preset_id: uuid.UUID
+    name: str
+    description: str | None
+    is_default: bool
+    active_version: int | None
+
+
+# --- Per-product presets (top-plan entitlement) ---
+
+
+class ProductPresetCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    description: str | None = None
+    blocks: list[PresetBlockIn] = Field(min_length=1, max_length=64)
+
+
+class ProductPresetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    product_preset_id: uuid.UUID
+    business_id: uuid.UUID
+    name: str
+    description: str | None
+    created_at: datetime
+
+
+class ProductPresetVersionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    version_id: uuid.UUID
+    product_preset_id: uuid.UUID
+    version: int
+    blocks: list
+    content_hash: str
+    status: str
+    created_at: datetime
+
+
+class ProductPresetAssignRequest(BaseModel):
+    product_preset_id: uuid.UUID | None = None
+
+
+# --- AI definitions (platform operator) ---
+
+
+class AIDefinitionCreateRequest(BaseModel):
+    key: str = Field(min_length=3, max_length=64)
+    display_name: str = Field(min_length=1, max_length=120)
+    prompt_template: str = Field(min_length=1)
+    input_fields: list[str] = Field(default_factory=list, max_length=16)
+    max_output_length: int = Field(default=800, ge=1, le=4096)
+    cost_credits: int = Field(default=1, ge=1, le=100)
+    active: bool = True
+
+
+class AIDefinitionVersionRequest(BaseModel):
+    prompt_template: str | None = None
+    input_fields: list[str] | None = Field(default=None, max_length=16)
+    max_output_length: int | None = Field(default=None, ge=1, le=4096)
+    cost_credits: int | None = Field(default=None, ge=1, le=100)
+    activate: bool = True
+
+
+class AIDefinitionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    definition_id: uuid.UUID
+    key: str
+    version: int
+    display_name: str
+    prompt_template: str
+    input_fields: list
+    max_output_length: int
+    cost_credits: int
+    active: bool
+    created_at: datetime
+
+
+# --- AI artifacts (business) ---
+
+
+class AIGenerateRequest(BaseModel):
+    definition_key: str = Field(min_length=3, max_length=64)
+
+
+class AIArtifactOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    artifact_id: uuid.UUID
+    product_id: uuid.UUID
+    business_id: uuid.UUID
+    output_definition_key: str
+    output_definition_version: int
+    source_dependency_fingerprint: str
+    generated_value: str
+    approved_value: str | None
+    status: str
+    model: str | None
+    provider: str | None
+    generated_at: datetime | None
+    approved_at: datetime | None
+    created_at: datetime
+
+
+class AIGenerateResult(BaseModel):
+    artifact: AIArtifactOut
+    reused: bool
+    definition_key: str
+    definition_version: int
+
+
+class AIArtifactEditRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4096)
+
+
+class AIToggleAutomaticRequest(BaseModel):
+    enabled: bool
+
+
+class PreviewBlockOut(BaseModel):
+    id: str
+    type: str
+    ownership: str
+    priority: int
+    text: str
+    kept: bool
+
+
+class PreviewOut(BaseModel):
+    product_id: uuid.UUID
+    source: str
+    preset_id: uuid.UUID | None
+    preset_name: str | None
+    preset_version: int | None
+    text: str
+    total_chars: int
+    max_length: int
+    fits: bool
+    blocked_reason: str | None
+    media_urls: list[str]
+    blocks: list[PreviewBlockOut]
+    warnings: list[str]
