@@ -320,7 +320,6 @@ def upgrade() -> None:
                     sa.column("allowed_contexts", sa.JSON),
                     sa.column("active", sa.Boolean),
                     sa.column("created_by", sa.Uuid),
-                    sa.column("created_at", sa.DateTime(timezone=True)),
                 ),
                 [
                     {
@@ -337,7 +336,6 @@ def upgrade() -> None:
                         "allowed_contexts": spec["allowed_contexts"],
                         "active": spec["active"],
                         "created_by": None,
-                        "created_at": None,
                     }
                 ],
             )
@@ -390,8 +388,6 @@ def upgrade() -> None:
                     sa.column("description", sa.Text),
                     sa.column("is_default", sa.Boolean),
                     sa.column("created_by", sa.Uuid),
-                    sa.column("created_at", sa.DateTime(timezone=True)),
-                    sa.column("updated_at", sa.DateTime(timezone=True)),
                 ),
                 [
                     {
@@ -401,8 +397,6 @@ def upgrade() -> None:
                         "description": "Default preset for this business type.",
                         "is_default": True,
                         "created_by": None,
-                        "created_at": None,
-                        "updated_at": None,
                     }
                 ],
             )
@@ -416,7 +410,6 @@ def upgrade() -> None:
                     sa.column("content_hash", sa.String),
                     sa.column("status", sa.String),
                     sa.column("created_by", sa.Uuid),
-                    sa.column("created_at", sa.DateTime(timezone=True)),
                 ),
                 [
                     {
@@ -427,7 +420,6 @@ def upgrade() -> None:
                         "content_hash": content_hash,
                         "status": "ACTIVE",
                         "created_by": None,
-                        "created_at": None,
                     }
                 ],
             )
