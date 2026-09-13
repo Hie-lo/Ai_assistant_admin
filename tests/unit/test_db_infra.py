@@ -28,3 +28,17 @@ def test_engine_and_session_factory_from_url() -> None:
     finally:
         session.close()
         engine.dispose()
+
+
+def test_server_engine_uses_concrete_poolclass() -> None:
+    """Regression: the abstract ``Pool`` base class must not be poolclass.
+
+    ``create_engine(..., poolclass=Pool)`` succeeds eagerly but the first
+    ``connect()`` raises ``NotImplementedError``. Server-DB engines must use
+    a concrete pool (QueuePool).
+    """
+    engine = create_engine_from_url("postgresql+psycopg://u:p@localhost:5432/db")
+    try:
+        assert type(engine.pool).__name__ == "QueuePool"
+    finally:
+        engine.dispose()

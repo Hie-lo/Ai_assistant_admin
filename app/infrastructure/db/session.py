@@ -12,7 +12,7 @@ from collections.abc import Generator
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import Pool
+from sqlalchemy.pool import QueuePool
 
 from app.config.settings import Settings, get_settings
 
@@ -22,12 +22,15 @@ def create_engine_from_url(url: str, *, echo: bool = False) -> Engine:
 
     ``pool_pre_ping`` guards against stale connections after server/DB
     restarts (failure-first: reconnect rather than assume liveness).
-    A bounded ``Pool`` is used for server databases; SQLite keeps its
-    default pool selection (in-memory SQLite requires the in-memory pool).
+    A bounded ``QueuePool`` is used explicitly for server databases; SQLite
+    keeps its default pool selection (in-memory SQLite requires the
+    in-memory pool). NOTE: ``sqlalchemy.pool.Pool`` itself is an abstract
+    base class and must never be passed as ``poolclass`` (connections raise
+    ``NotImplementedError``).
     """
     kwargs: dict[str, object] = {"echo": echo, "pool_pre_ping": True}
     if not url.startswith("sqlite"):
-        kwargs["poolclass"] = Pool
+        kwargs["poolclass"] = QueuePool
     return create_engine(url, **kwargs)
 
 

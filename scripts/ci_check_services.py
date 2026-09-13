@@ -1,18 +1,21 @@
 """CI service pre-flight: verify PostgreSQL + Redis reachability with retries.
 
-Service containers can take a few seconds to become fully ready after the
-runner reports them as initialized. Rather than failing the build on a
-transient race (and leaving no diagnostic), each check retries for up to
-60 seconds and, if it still fails, prints the underlying exception so the
-cause is visible in the step output.
+Connects using the exact ``DATABASE_URL``/``REDIS_URL`` the CI job exports
+(the service containers create the database, so the URL must come from the
+environment, never a hardcoded default). Service containers can take a few
+seconds to become fully ready after the runner reports them as initialized;
+rather than failing the build on a transient race (and leaving no
+diagnostic), each check retries for up to 60 seconds and, if it still fails,
+prints the underlying exception so the cause is visible in the step output.
 """
 
 from __future__ import annotations
 
+import os
 import time
 
-PG_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/app"
-REDIS_URL = "redis://localhost:6379/0"
+PG_URL = os.environ["DATABASE_URL"]
+REDIS_URL = os.environ["REDIS_URL"]
 TIMEOUT_S = 60.0
 
 
