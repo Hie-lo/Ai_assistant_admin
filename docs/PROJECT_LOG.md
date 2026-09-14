@@ -1,5 +1,32 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-16 — Phase 7 DEFERRED (owner decision) + contract review committed
+
+- Owner decision (2026-09-16): **defer Eitaa/Rubika implementation** — first
+  deliver a clean, complete Telegram + Bale product, then add Eitaa/Rubika
+  (and any future platforms).
+- New execution order (roadmap updated to v1.1): Phase 8 (Sync engine) ->
+  9 (Interfaces) -> 10 (Monitoring/Backup/DR) -> 11 (Scale hardening) ->
+  12 (Production readiness) -> Eitaa/Rubika as extension platforms.
+- Phase 7 contract review committed (76b549b) as
+  `docs/PHASE7_EITAA_RUBIKA_CONTRACT_REVIEW.md`:
+  - Rubika: OFFICIAL REST Bot API (botapi.rubika.ir/v3) fully reviewed.
+    Media = 2-step upload (requestSendFile -> multipart upload -> file_id ->
+    sendFile); no album/caption-edit method, no error model, no length or
+    rate limits documented -> every unknown is a numbered certification
+    probe (P0-P7), no guessed constants.
+  - Eitaa: **no public official bot API found** (2 search passes). Only
+    public route is third-party eitaayar.ir — send-only: exactly 3 methods
+    (getMe, sendMessage, sendFile), NO edit/delete/album; bonuses:
+    scheduled send (`date`) + pin. Risk assessment recorded.
+  - Capability matrix vs Telegram/Bale + certification run designs for both
+    platforms are ready, so the deferred phase now only needs the live
+    runs + adapter build.
+- Next: Phase 8 — Sync engine (manual sync on schedule, scheduler, queue
+  workers, retries/backoff, change classification, reconnect
+  reconciliation) per SOURCE_SYNC_DOMAIN_SPECIFICATION_V1; automatic-mode
+  publication triggers land here (deferred from Phases 4/5 by design).
+
 ## 2026-09-15 — Phase 6 COMPLETE: Bale live CERTIFIED (certification run #6)
 
 ### Certification run #6 (owner, real bot, external image URL)
