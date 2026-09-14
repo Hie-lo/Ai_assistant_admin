@@ -27,6 +27,7 @@ never stored per business and never logged (rule 14).
 from __future__ import annotations
 
 import contextlib
+import json
 
 import httpx
 
@@ -238,7 +239,16 @@ class HttpBaleClient:
             if i == 0 and caption:
                 item["caption"] = escape_markdown(caption)
             media.append(item)
-        result = self._call("sendMediaGroup", {"chat_id": chat_id, "media": media})
+        # Bale documents ``media`` as a "JSON-serialized array" (same
+        # wording as reply_markup): the wire value is a JSON STRING, not a
+        # native array — verified against the official docs and both
+        # working community SDKs (Go: json.Marshal into the param; Python
+        # fork: json-encoded string). A native array in a JSON body is
+        # rejected with 400 "malformed request" (live certification
+        # finding, 2026-09-15).
+        result = self._call(
+            "sendMediaGroup", {"chat_id": chat_id, "media": json.dumps(media)}
+        )
         if not isinstance(result, list):
             raise BaleError(
                 enums.PublicationErrorCode.REMOTE_UNKNOWN, "unexpected media group result"

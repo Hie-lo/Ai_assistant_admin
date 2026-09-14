@@ -14,13 +14,15 @@ Checks (PASS / FAIL / SKIP):
   5. editMessageText    — the test message is edited in place.
   6. sendPhoto          — a photo-by-URL message is published (optional:
                           BALE_CERT_PHOTO_URL; skipped when not provided).
-  7. sendMediaGroup     — STAGED live limit probe: albums of 1, 2, 5, 10
+  7. sendMediaGroup     — STAGED live limit probe: albums of 2, 5, 10
                           (and --album-size if larger) are published until
-                          one fails, measuring Bale's true live item limit.
+                          one fails, measuring Bale's true live item limit
+                          (Telegram-documented minimum is 2 items; single
+                          media is covered by sendPhoto above).
                           NOTE: Bale downloads the media URL itself — if
                           the URL is unreachable from Bale's network the
-                          probe fails at 1 item; pass --photo-url with a
-                          direct image URL reachable from there.
+                          probe fails; pass --photo-url with a direct
+                          image URL reachable from there.
   8. editMessageCaption — the album caption is edited in place.
   9. deleteMessage      — all test messages (younger than 48h) are deleted.
  10. 48h-delete-limit   — (optional: BALE_CERT_OLD_MESSAGE_ID) a message
@@ -194,7 +196,10 @@ def main() -> int:
     # the probe then measures the true live item-count limit.
     photo = args.photo_url or "https://i.imgur.com/1V10c1P.jpg"
     album_mids: list[int] = []
-    sizes = sorted({1, 2, 5, 10, max(args.album_size, 1)})
+    # Albums start at 2 items: Telegram (which Bale mirrors) documents a
+    # 2-10 item minimum for sendMediaGroup, and single media is covered
+    # by the sendPhoto check above (production routes 1 photo there too).
+    sizes = sorted({2, 5, 10, max(args.album_size, 2)})
     measured_max: int | None = None
     last_err = ""
     for size in sizes:
@@ -221,9 +226,9 @@ def main() -> int:
         report.add(
             "sendMediaGroup",
             FAIL,
-            f"even a 1-item album failed -> {last_err}; likely the media URL is "
-            "unreachable from Bale's servers (use --photo-url with a direct "
-            "image URL reachable from there)",
+            f"even the minimum 2-item album failed -> {last_err}; if the "
+            "error is a URL fetch problem, use --photo-url with a direct "
+            "image URL reachable from Bale's network",
         )
 
     # 8. editMessageCaption --------------------------------------------------

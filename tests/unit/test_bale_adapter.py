@@ -5,6 +5,7 @@ HTTP transport contract (no network), and the inspection-unsupported rule.
 from __future__ import annotations
 
 import hashlib
+import json
 
 import httpx
 import pytest
@@ -162,9 +163,31 @@ def test_send_media_group_captions_first_item_and_escaped(monkeypatch):
     )
     assert ids == [1, 2]
     payload = seen[0][1]
-    assert payload["media"][0]["caption"] == "two \\*photos\\*"
-    assert "caption" not in payload["media"][1]
-    assert payload["media"][0]["type"] == "photo"
+    items = json.loads(payload["media"])
+    assert items[0]["caption"] == r"two \*photos\*"
+    assert "caption" not in items[1]
+    assert items[0]["type"] == "photo"
+    assert items[0]["media"] == "u1"
+
+
+def test_send_media_group_wire_format_is_json_serialized_string(monkeypatch):
+    # LIVE-FINDING REGRESSION (2026-09-15): Bale rejects a native JSON
+    # array for ``media`` with 400 "malformed request". The official docs
+    # call it a "JSON-serialized array" and both working community SDKs
+    # send a JSON-encoded string — so the wire value MUST be a str.
+    client, seen = _client(
+        monkeypatch,
+        {"ok": True, "result": [{"message_id": 1}, {"message_id": 2}]},
+    )
+    client.send_media_group("-100", ["u1", "u2"], caption="c")
+    payload = seen[0][1]
+    assert isinstance(payload["media"], str), (
+        "Bale expects media as a JSON-serialized STRING, not a native array"
+    )
+    parsed = json.loads(payload["media"])
+    assert isinstance(parsed, list) and len(parsed) == 2
+    assert parsed[0] == {"type": "photo", "media": "u1", "caption": "c"}
+    assert parsed[1] == {"type": "photo", "media": "u2"}
 
 
 def test_ok_false_body_with_retry_after(monkeypatch):

@@ -1,6 +1,53 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
-## 2026-09-15 — Bale live certification run #1: album probe failure found + diagnostics upgraded
+## 2026-09-15 — Bale live certification runs #2/#3: media wire-format bug found and fixed
+
+### Certification run #2 (owner, real bot)
+- URL passed was the Persian placeholder from the example command (not a
+  real address) -> sendPhoto and the 1-item album failed with
+  VALIDATION_ERROR. Confirmed: Bale downloads media URLs from its own
+  network and rejects unfetchable URLs.
+
+### Certification run #3 (owner, real bot, image hosted on this host)
+- `sendPhoto` **PASS** (the /static test image on the site itself is
+  reachable from Bale's network — the guaranteed-URL approach works).
+- 1-item `sendMediaGroup` **FAIL**: 400 "Bad Request: malformed request".
+  Same URL worked for sendPhoto in the same run -> NOT a URL problem:
+  the ALBUM WIRE FORMAT was wrong.
+
+### Root cause (verified, not guessed)
+Bale's official docs document `media` as a "JSON-serialized array" (same
+wording as `reply_markup`). Both working community SDKs confirm the wire
+form is a **JSON-encoded STRING**:
+- Go SDK (arashrahimi46/bale-bot-go-api): `v.Add("media",
+  string(json.Marshal(items)))`
+- Python SDK (mahdikiani/telegram-bale-bot, pyTelegramBotAPI fork):
+  json-encoded string parameter.
+Our adapter sent a NATIVE JSON array in the JSON body -> Bale 400
+"malformed request".
+
+### Fixed
+- Bale adapter now sends `media` as `json.dumps(items)` (a string) in
+  the JSON body — matching the docs wording and both SDKs.
+- Regression test locks the wire contract: `payload["media"]` MUST be a
+  str that parses to the item list.
+- Certification probe now starts at 2 items (Telegram — which Bale
+  mirrors — documents a 2-10 item minimum for sendMediaGroup; a 1-item
+  group is invalid, and production routes single photos to sendPhoto
+  anyway). The previous run's "malformed request" at 1 item was
+  consistent with BOTH the wrong wire format and the 2-item minimum;
+  the probe design (sizes 2/5/10) measures the true live limit next run
+  regardless.
+- Suite: 353 -> 354 passing, ruff clean.
+
+### Next (owner action)
+`git pull`, rebuild the image, re-run the certification with
+`--photo-url https://<SITE_DOMAIN>/static/certification_photo.jpg`
+(the one that worked for sendPhoto). Expected: album probe 2 -> 5 -> 10
+measures the live limit; then Bale is fully certified.
+
+## 2026-09-15 — Bale live certification run #1
+: album probe failure found + diagnostics upgraded
 
 ### Live certification run #1 (owner, on the server, real bot + channel)
 - PASS: getMe, getChat (channel), getChatMember (bot = administrator),
