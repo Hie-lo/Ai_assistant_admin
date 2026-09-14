@@ -27,7 +27,6 @@ never stored per business and never logged (rule 14).
 from __future__ import annotations
 
 import contextlib
-import json
 
 import httpx
 
@@ -59,7 +58,7 @@ class BaleError(PlatformError):
 #: How this adapter encodes the sendMediaGroup ``media`` parameter on the
 #: wire. The certification script prints this marker so a live run proves
 #: which adapter version is inside the running image.
-MEDIA_GROUP_WIRE_FORMAT = "json-serialized-string"
+MEDIA_GROUP_WIRE_FORMAT = "native-json-array (live-verified)"
 
 BALE_CAPABILITIES = PlatformCapabilities(
     platform="BALE",
@@ -244,16 +243,13 @@ class HttpBaleClient:
             if i == 0 and caption:
                 item["caption"] = escape_markdown(caption)
             media.append(item)
-        # Bale documents ``media`` as a "JSON-serialized array" (same
-        # wording as reply_markup): the wire value is a JSON STRING, not a
-        # native array — verified against the official docs and both
-        # working community SDKs (Go: json.Marshal into the param; Python
-        # fork: json-encoded string). A native array in a JSON body is
-        # rejected with 400 "malformed request" (live certification
-        # finding, 2026-09-15).
-        result = self._call(
-            "sendMediaGroup", {"chat_id": chat_id, "media": json.dumps(media)}
-        )
+        # Wire format (LIVE-VERIFIED against tapi.bale.ai, 2026-09-15,
+        # certification run #5 diagnostic): a NATIVE JSON array in a JSON
+        # body is ACCEPTED; a JSON-serialized STRING in a JSON body is
+        # REJECTED with 400 "malformed request" (run #4). The community
+        # SDKs' string convention belongs to their form-encoded requests,
+        # not JSON bodies.
+        result = self._call("sendMediaGroup", {"chat_id": chat_id, "media": media})
         if not isinstance(result, list):
             raise BaleError(
                 enums.PublicationErrorCode.REMOTE_UNKNOWN, "unexpected media group result"

@@ -1,6 +1,41 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
-## 2026-09-15 — Bale live certification run #4: media-group wire diagnostic added
+## 2026-09-15 — Bale live certification run #5: wire format RESOLVED (native array)
+
+### Certification run #5 (owner, real bot, external image URL)
+- Wire-format marker printed: `json-serialized-string` (proving the
+  rebuilt image's adapter ran — not a stale image).
+- Adapter album check (JSON-string body): 2-item -> 400 "malformed
+  request" (re-confirmed the string form is rejected by Bale).
+- **Automatic DIAG: variant A "JSON body, native array" -> ACCEPTED**
+  (message ids 951/954, cleaned up). Owner watched the two photos land
+  in the channel and be deleted.
+
+### Resolution (live evidence, no ambiguity left)
+- Bale's sendMediaGroup in a JSON body takes a **NATIVE JSON array**
+  (Telegram-style). The "JSON-serialized string" convention of the
+  community SDKs belongs to their FORM-ENCODED requests, not JSON
+  bodies; the docs' "JSON-serialized array" wording is inherited from
+  Telegram's form convention.
+- Adapter reverted to the native array (the ORIGINAL Phase 6 form —
+  the run-#3/#4 failures were the 1-item minimum and the probe
+  stopping early, not the array form).
+- `MEDIA_GROUP_WIRE_FORMAT` marker now: `native-json-array
+  (live-verified)`.
+- Regression tests lock the contract both ways: media MUST be a list
+  (native array); the string form is the rejected one.
+
+### Suite
+354 passing, ruff clean.
+
+### Next (owner action) — expected to be the final run
+`git pull` + `docker compose build web && docker compose up -d web` +
+re-run with the external --photo-url. Expected: album probe 2 -> 5 -> 10
+measures the live limit and the full run is CERTIFIED (editMessageCaption
+will also execute for the first time).
+
+## 2026-09-15 — Bale live certification run #4
+: media-group wire diagnostic added
 
 ### Certification run #4 (owner, real bot, external image URL)
 - sendPhoto PASS (external URL reachable from Bale's network).
