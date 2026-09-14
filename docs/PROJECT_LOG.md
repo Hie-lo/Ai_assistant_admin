@@ -1,6 +1,35 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
-## 2026-09-15 — Bale live certification run #5: wire format RESOLVED (native array)
+## 2026-09-15 — Phase 6 COMPLETE: Bale live CERTIFIED (certification run #6)
+
+### Certification run #6 (owner, real bot, external image URL)
+- Wire-format marker: `native-json-array (live-verified)` (correct
+  adapter version ran).
+- ALL checks PASS: getMe, getChat (channel), getChatMember
+  (administrator), sendMessage, editMessageText, sendPhoto (URL),
+  sendMediaGroup staged probe 2 -> 5 -> 10 items ALL accepted (live
+  album limit >= 10 — the conservative cap of 10 stands, owner
+  decision), editMessageCaption, deleteMessage (19/19 test messages
+  cleaned up; channel left clean).
+- **RESULT: CERTIFIED — Bale publication may be enabled.**
+
+### Phase 6 closure
+- Bale is production-ready: shared org bot (env token), text with
+  markdown escaping, single photo (4096 caption), albums <= 10
+  (1024 caption), edit/delete, 48h lingering policy, explicit
+  inspection-unsupported behavior, live certification as the
+  activation gate (spec section 13) — all live-verified against
+  tapi.bale.ai on the production server.
+- Optional probes not run (no owner-provided inputs): 48h delete-limit
+  probe (needs a sacrificial >48h message) and rate-limit probe
+  (opt-in flag). Available whenever the owner wants them.
+- Next: Phase 7 (Eitaa/Rubika). Standing owner directive (2026-09-15):
+  BEFORE any coding — review API contract + capability matrix +
+  limits + certification strategy; ambiguous points -> structured
+  owner questions, NO guessing.
+
+## 2026-09-15 — Bale live certification run #5
+: wire format RESOLVED (native array)
 
 ### Certification run #5 (owner, real bot, external image URL)
 - Wire-format marker printed: `json-serialized-string` (proving the
