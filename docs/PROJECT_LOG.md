@@ -1,6 +1,40 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
-## 2026-09-15 — Bale live certification runs #2/#3: media wire-format bug found and fixed
+## 2026-09-15 — Bale live certification run #4: media-group wire diagnostic added
+
+### Certification run #4 (owner, real bot, external image URL)
+- sendPhoto PASS (external URL reachable from Bale's network).
+- 2-item sendMediaGroup STILL 400 "malformed request" — after the
+  JSON-serialized-string fix. Two remaining possibilities, both
+  unproven: (a) the server image was not rebuilt, so the old adapter
+  (native array) was still inside the container; (b) Bale requires a
+  third encoding — the form-encoded body exactly as the Go SDK posts
+  it (url.Values + json.Marshal). No more guessing.
+
+### Delivered — live wire-format diagnostic (evidence, not inference)
+- `bale.py` now carries a `MEDIA_GROUP_WIRE_FORMAT` marker; the
+  certification script prints it at start, so every live run PROVES
+  which adapter version is inside the running image ("UNKNOWN - stale
+  image, rebuild!" otherwise).
+- When the album check fails, the script automatically runs a raw
+  (image-adapter-independent) diagnostic that sends a 2-item album in
+  all three documented/SDK-backed encodings and reports which the LIVE
+  API accepts:
+    A) JSON body, media = native array (Telegram-style)
+    B) JSON body, media = JSON-serialized string (docs wording + SDKs)
+    C) form-encoded body, media = JSON-serialized string (Go SDK wire
+       form)
+  A winning variant's test messages are deleted at once; the token
+  never appears in output.
+- Suite: 354 passing, ruff clean.
+
+### Next (owner action)
+`git pull` + rebuild image + re-run; the output now shows (1) which
+adapter version ran and (2) which wire encoding Bale accepts — the
+adapter will ship exactly that encoding.
+
+## 2026-09-15 — Bale live certification runs #2/#3
+: media wire-format bug found and fixed
 
 ### Certification run #2 (owner, real bot)
 - URL passed was the Persian placeholder from the example command (not a

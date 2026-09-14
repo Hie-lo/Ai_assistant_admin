@@ -33,6 +33,12 @@ Checks (PASS / FAIL / SKIP):
  11. rate-limit probe   — (optional: BALE_CERT_RATE_PROBE=<count>) fire
                           <count> messages back to back and report whether
                           429 + retry_after appears.
+ 12. wire diagnostic    — automatic when the album check fails: probes
+                          all three documented wire encodings of the
+                          media param (native array / JSON-string in a
+                          JSON body / JSON-string in a form body)
+                          directly against the live API and reports
+                          which one Bale accepts.
 
 The token is read from the environment (BALE_BOT_TOKEN) and is never
 printed; anything that could contain it is redacted. Exit code 0 = all
@@ -48,6 +54,8 @@ Usage (on the server, from the repo root):
 from __future__ import annotations
 
 import argparse
+import contextlib
+import json
 import os
 import sys
 import time
@@ -88,6 +96,58 @@ class Report:
         return not any(s == FAIL for _, s, _ in self.rows)
 
 
+def _diagnose_media_group_wire(base_url: str, token: str, chat_id: str, photo: str) -> None:
+    """Live wire-format diagnostic (raw httpx, image-adapter independent).
+
+    Tries a 2-item album in the three documented/SDK-backed encodings and
+    reports which one the LIVE Bale API accepts:
+      A) JSON body, media = native JSON array (Telegram-style)
+      B) JSON body, media = JSON-serialized string (Bale docs wording +
+         both community SDKs)
+      C) form-encoded body, media = JSON-serialized string (exactly how
+         the Go SDK posts: url.Values + json.Marshal)
+    Only a winning variant creates messages; it deletes them at once.
+    The token never appears in any output.
+    """
+    import httpx
+
+    api = f"{base_url}/bot"
+    items = [{"type": "photo", "media": photo}] * 2
+    media_str = json.dumps(items)
+    variants = [
+        ("A: JSON body, native array", {"chat_id": chat_id, "media": items}, None),
+        ("B: JSON body, JSON-serialized string", {"chat_id": chat_id, "media": media_str}, None),
+        ("C: form body, JSON-serialized string", None, {"chat_id": chat_id, "media": media_str}),
+    ]
+    print()
+    print("  == media-group wire-format diagnostic (2 items each) ==")
+    for name, json_body, form_body in variants:
+        try:
+            if json_body is not None:
+                resp = httpx.post(f"{api}{token}/sendMediaGroup", json=json_body, timeout=30)
+            else:
+                resp = httpx.post(f"{api}{token}/sendMediaGroup", data=form_body, timeout=30)
+            data = resp.json()
+        except Exception as exc:  # noqa: BLE001 - diagnostic prints, never crashes
+            print(f"  [DIAG] {name}: request error -> {type(exc).__name__}")
+            continue
+        if data.get("ok"):
+            mids = [m.get("message_id") for m in data.get("result", []) if isinstance(m, dict)]
+            print(f"  [DIAG] {name}: ACCEPTED (message ids: {mids})")
+            for mid in mids:
+                with contextlib.suppress(Exception):
+                    httpx.post(
+                        f"{api}{token}/deleteMessage",
+                        json={"chat_id": chat_id, "message_id": mid},
+                        timeout=30,
+                    )
+            print("  [DIAG] test messages cleaned up")
+            return
+        desc = str(data.get("description") or "")[:120]
+        print(f"  [DIAG] {name}: rejected -> {data.get('error_code')} ({desc})")
+    print("  [DIAG] no encoding accepted — next step: contact Bale support with the above")
+
+
 def main() -> int:
     global _TOKEN
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -118,6 +178,12 @@ def main() -> int:
         print(f"  [{FAIL}] setup: --chat / BALE_CERT_CHAT is not set")
         return 1
     print(f"  target chat: {args.chat!r}  base: {base_url}")
+    from app.infrastructure.platforms import bale as _balemod
+
+    print(
+        "  adapter media wire format: "
+        f"{getattr(_balemod, 'MEDIA_GROUP_WIRE_FORMAT', 'UNKNOWN - stale image, rebuild!')}"
+    )
 
     report = Report()
     client = HttpBaleClient(base_url=base_url, token=_TOKEN, timeout=30.0)
@@ -230,6 +296,10 @@ def main() -> int:
             "error is a URL fetch problem, use --photo-url with a direct "
             "image URL reachable from Bale's network",
         )
+        # The adapter's encoding did not work live. Probe ALL documented
+        # wire encodings directly (independent of the image's adapter
+        # version) to learn exactly what Bale accepts:
+        _diagnose_media_group_wire(base_url, _TOKEN, chat_id, photo)
 
     # 8. editMessageCaption --------------------------------------------------
     if album_mids:

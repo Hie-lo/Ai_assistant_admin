@@ -56,6 +56,11 @@ class BaleError(PlatformError):
 #: Verified limits from the official Bale docs (2026-09-15). Album max is
 #: the conservative Telegram-equivalent until live certification measures
 #: Bale's own limit (certification checklist: "limits measured/confirmed").
+#: How this adapter encodes the sendMediaGroup ``media`` parameter on the
+#: wire. The certification script prints this marker so a live run proves
+#: which adapter version is inside the running image.
+MEDIA_GROUP_WIRE_FORMAT = "json-serialized-string"
+
 BALE_CAPABILITIES = PlatformCapabilities(
     platform="BALE",
     text_max_length=4096,
