@@ -131,6 +131,20 @@ def create_app() -> FastAPI:
 
     app.include_router(routes_publications.router)
 
+    # --- Static assets (operational aid; Phase 9 web-panel foundation) ---
+    # A small PUBLIC static dir (currently only the platform-certification
+    # test photo). Platform bots (e.g. Bale) download media URLs from THEIR
+    # own servers, so a URL on this host is the guaranteed-reachable choice
+    # for live certification: https://<host>/static/certification_photo.jpg
+    # Phase 12 security review confirms this public surface.
+    from pathlib import Path
+
+    from fastapi.staticfiles import StaticFiles
+
+    static_dir = Path(__file__).parent / "static"
+    if static_dir.is_dir():
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
     # Register authoritative entitlement usage counters (products, sources).
     from app.application import usage  # noqa: F401
 

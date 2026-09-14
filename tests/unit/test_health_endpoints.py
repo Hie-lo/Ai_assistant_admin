@@ -37,6 +37,17 @@ def test_readyz_reports_database_check(client: TestClient) -> None:
     assert db_check == "ok" or db_check.startswith("unavailable")
 
 
+def test_static_certification_photo_is_served(client: TestClient) -> None:
+    # Operational aid for live platform certification: platform bots
+    # (e.g. Bale) download media URLs from their own servers, so a public
+    # URL on this host is the guaranteed-reachable choice.
+    resp = client.get("/static/certification_photo.jpg")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/jpeg"
+    body = resp.content
+    assert body[:3] == b"\xff\xd8\xff" and body[-2:] == b"\xff\xd9"
+
+
 def test_readyz_is_ok_when_database_is_live(db_client: TestClient) -> None:
     """Regression: with a reachable engine, /readyz must be 200/ok — never a
     handler-level failure masquerading as a DB check (e.g. an ImportError in

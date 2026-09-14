@@ -28,12 +28,33 @@
 - Tests: +3 unit (description surfaced + error_code wins, non-JSON body
   survives, description bounded).
 
+### Certification run #2 (owner, real bot)
+Re-run with an invalid placeholder image URL (a Persian-language
+example string, not a real address) -> sendPhoto and the 1-item album
+probe both failed with VALIDATION_ERROR. This CONFIRMS the diagnosis:
+Bale downloads the media URL from its own network and rejects URLs it
+cannot fetch — the item-count limit still needs a reachable image to
+measure.
+
+### Delivered — guaranteed-reachable test image on this host
+- New public static route `/static/` serving a small operational test
+  photo (`app/interfaces/http/static/certification_photo.jpg`, 4 KB,
+  generated locally). Platform bots download media URLs from their own
+  servers, so a URL on THIS host is the guaranteed-reachable choice
+  for live certification. Phase 12 security review confirms the public
+  surface.
+- Test: static photo must serve 200 image/jpeg with a valid JPEG body.
+- Suite: 352 -> 353 passing, ruff clean.
+
 ### Next (owner action)
-Re-run the certification with a direct image URL reachable from
-Iran/Bale's network, e.g.:
-`... certify_platform.py --platform bale --photo-url https://.../photo.jpg`
-Once the album probe passes, the live limit is known and
-`BALE_CAPABILITIES.media_group_max` is pinned to the measured value.
+1. `git pull` + REBUILD the image so the new adapter (error-description
+   surfacing) is inside the container:
+   `docker compose build web && docker compose up -d web`
+2. Re-run with the test image hosted on the site itself:
+   `... certify_platform.py --platform bale --photo-url https://<SITE_DOMAIN>/static/certification_photo.jpg`
+   (any other direct public image URL reachable from Iran also works)
+3. Once the album probe passes, the live limit is known and
+   `BALE_CAPABILITIES.media_group_max` is pinned to the measured value.
 
 ## 2026-09-15 — Phase 6: Bale platform
  (adapter + multi-platform core + certification tool)
