@@ -1,6 +1,42 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
-## 2026-09-15 — Phase 6: Bale platform (adapter + multi-platform core + certification tool)
+## 2026-09-15 — Bale live certification run #1: album probe failure found + diagnostics upgraded
+
+### Live certification run #1 (owner, on the server, real bot + channel)
+- PASS: getMe, getChat (channel), getChatMember (bot = administrator),
+  sendMessage (markdown escaped), editMessageText, deleteMessage — the
+  TEXT side of Bale is certified against the live API, and the
+  cleanup deleted the test message.
+- FAIL: sendMediaGroup with a 10-item album -> HTTP 500.
+- Analysis: the album used a public imgur placeholder, and Bale's
+  servers download the media URL themselves — imgur is not reachable
+  from Iranian networks, so a 500 is expected in that case. The live
+  item-count limit is therefore NOT yet measured (no guessing, per the
+  standing directive); the probe below measures it on re-run.
+
+### Delivered — certification diagnostics upgrade
+- Bale adapter now carries the API's own `description` (and
+  `error_code`) into error details (bounded 200 chars; API text only —
+  never a secret, rule 14). A gateway 500 with a non-JSON body no
+  longer loses diagnostic info and cannot crash the client.
+- `scripts/certify_platform.py` album check is now a STAGED LIVE LIMIT
+  PROBE: albums of 1, 2, 5, 10 (and `--album-size` if larger) are sent
+  until one fails, printing each step and reporting the measured live
+  limit. It also uses `--photo-url` for the album items when provided,
+  and the FAIL message now distinguishes "URL unreachable from Bale's
+  network" (fails at 1 item) from "item-count limit" (fails at N>1).
+- Tests: +3 unit (description surfaced + error_code wins, non-JSON body
+  survives, description bounded).
+
+### Next (owner action)
+Re-run the certification with a direct image URL reachable from
+Iran/Bale's network, e.g.:
+`... certify_platform.py --platform bale --photo-url https://.../photo.jpg`
+Once the album probe passes, the live limit is known and
+`BALE_CAPABILITIES.media_group_max` is pinned to the measured value.
+
+## 2026-09-15 — Phase 6: Bale platform
+ (adapter + multi-platform core + certification tool)
 
 ### Delivered — Bale publication capability (owner-approved 2026-09-15, 5 design questions)
 - Multi-platform core (`app/infrastructure/platforms/base.py`): ONE

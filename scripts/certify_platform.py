@@ -14,10 +14,13 @@ Checks (PASS / FAIL / SKIP):
   5. editMessageText    — the test message is edited in place.
   6. sendPhoto          — a photo-by-URL message is published (optional:
                           BALE_CERT_PHOTO_URL; skipped when not provided).
-  7. sendMediaGroup     — an album of N photos (default 10 = our cap) is
-                          published; measure the live limit by raising
-                          BALE_CERT_ALBUM_SIZE (e.g. 15, 20) to discover
-                          Bale's own maximum.
+  7. sendMediaGroup     — STAGED live limit probe: albums of 1, 2, 5, 10
+                          (and --album-size if larger) are published until
+                          one fails, measuring Bale's true live item limit.
+                          NOTE: Bale downloads the media URL itself — if
+                          the URL is unreachable from Bale's network the
+                          probe fails at 1 item; pass --photo-url with a
+                          direct image URL reachable from there.
   8. editMessageCaption — the album caption is edited in place.
   9. deleteMessage      — all test messages (younger than 48h) are deleted.
  10. 48h-delete-limit   — (optional: BALE_CERT_OLD_MESSAGE_ID) a message
@@ -183,29 +186,44 @@ def main() -> int:
     else:
         report.add("sendPhoto", SKIP, "no --photo-url provided")
 
-    # 7. sendMediaGroup ------------------------------------------------------
+    # 7. sendMediaGroup (staged live limit probe) ------------------------------
+    # IMPORTANT: Bale's servers download the media URL THEMSELVES. If the
+    # URL is unreachable from Bale's network (e.g. imgur is blocked in
+    # Iran), the API answers 500 even for a 1-item album. Pass
+    # --photo-url with a direct image URL reachable from Bale's network;
+    # the probe then measures the true live item-count limit.
+    photo = args.photo_url or "https://i.imgur.com/1V10c1P.jpg"
     album_mids: list[int] = []
-    # Same placeholder photo N times: content is irrelevant, the contract
-    # under test is the ALBUM mechanics (and the live item-count limit).
-    placeholder = "https://i.imgur.com/1V10c1P.jpg"
-    album_urls = [placeholder] * max(args.album_size, 1)
-    try:
-        album_mids = client.send_media_group(
-            chat_id, album_urls, caption="certification album"
-        )
-        created.extend(album_mids)
+    sizes = sorted({1, 2, 5, 10, max(args.album_size, 1)})
+    measured_max: int | None = None
+    last_err = ""
+    for size in sizes:
+        try:
+            album_mids = client.send_media_group(
+                chat_id, [photo] * size, caption=f"certification album ({size})"
+            )
+            created.extend(album_mids)
+            measured_max = size
+            print(f"  album probe: {size} item(s) OK")
+        except BaleError as exc:
+            last_err = f"{exc.code.value}: {exc.detail}"
+            print(f"  album probe: {size} item(s) FAILED -> {last_err}")
+            break
+    if album_mids:
         report.add(
             "sendMediaGroup",
             PASS,
-            f"album of {len(album_mids)} accepted (ids {len(album_mids)}); "
-            f"live limit is >= {args.album_size}",
+            f"album of {measured_max} accepted; live item limit is >= "
+            f"{measured_max}"
+            + ("" if measured_max == sizes[-1] else " (raise --album-size to measure higher)"),
         )
-    except BaleError as exc:
+    else:
         report.add(
             "sendMediaGroup",
             FAIL,
-            f"{exc.code.value} for {args.album_size} items: {exc.detail} "
-            "(raise/lower BALE_CERT_ALBUM_SIZE to measure the limit)",
+            f"even a 1-item album failed -> {last_err}; likely the media URL is "
+            "unreachable from Bale's servers (use --photo-url with a direct "
+            "image URL reachable from there)",
         )
 
     # 8. editMessageCaption --------------------------------------------------

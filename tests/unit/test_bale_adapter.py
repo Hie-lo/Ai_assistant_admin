@@ -221,6 +221,61 @@ def test_timeout_and_network_errors(monkeypatch):
     assert excinfo.value.code is enums.PublicationErrorCode.NETWORK_ERROR
 
 
+def test_error_detail_includes_api_description(monkeypatch):
+    # The API's own description must be surfaced (diagnosability) — it is
+    # API text, never a secret.
+    seen: list = []
+
+    def fake_post(url, json=None, timeout=None):
+        request = httpx.Request("POST", url, json=json)
+        seen.append(request)
+        return httpx.Response(
+            500,
+            request=request,
+            json={"ok": False, "error_code": 400, "description": "media group is too large"},
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    client = bale.HttpBaleClient(base_url="https://tapi.bale.ai", token="t")
+    with pytest.raises(bale.BaleError) as excinfo:
+        client.send_media_group("-100", ["u1", "u2"], caption="c")
+    # The body error_code (400) wins over the HTTP status (500)...
+    assert excinfo.value.code is enums.PublicationErrorCode.VALIDATION_ERROR
+    # ...and the API's own description is carried in the detail.
+    assert "media group is too large" in excinfo.value.detail
+    assert "error_code=400" in excinfo.value.detail
+
+
+def test_error_detail_survives_non_json_body(monkeypatch):
+    # A gateway-level 500 with no JSON body must not crash the client.
+    def fake_post(url, json=None, timeout=None):
+        request = httpx.Request("POST", url, json=json)
+        return httpx.Response(500, request=request, text="<html>boom</html>")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    client = bale.HttpBaleClient(base_url="https://tapi.bale.ai", token="t")
+    with pytest.raises(bale.BaleError) as excinfo:
+        client.get_me()
+    assert excinfo.value.code is enums.PublicationErrorCode.INTERNAL_ERROR
+    assert "500" in excinfo.value.detail
+
+
+def test_error_description_is_bounded(monkeypatch):
+    def fake_post(url, json=None, timeout=None):
+        request = httpx.Request("POST", url, json=json)
+        return httpx.Response(
+            400,
+            request=request,
+            json={"ok": False, "error_code": 400, "description": "x" * 500},
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    client = bale.HttpBaleClient(base_url="https://tapi.bale.ai", token="t")
+    with pytest.raises(bale.BaleError) as excinfo:
+        client.get_me()
+    assert len(excinfo.value.detail) <= 260
+
+
 def test_http_client_refuses_missing_token_without_network():
     with pytest.raises(bale.BaleError) as excinfo:
         bale.HttpBaleClient(base_url="https://tapi.bale.ai", token="")

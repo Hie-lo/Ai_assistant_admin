@@ -110,6 +110,24 @@ def unescape_markdown(text: str) -> str:
     return "".join(out)
 
 
+def _attach_detail(err: BaleError, data: dict) -> None:
+    """Surface the API's own ``description`` for diagnosability.
+
+    Bale's description text is API text (never contains the token or the
+    request URL), so it is safe to carry into error details and operator
+    output (rule 14: never log secrets — this is not a secret). Bounded
+    to 200 chars.
+    """
+    desc = str(data.get("description") or "").strip()
+    if desc:
+        suffix = desc[:200]
+        err.detail = f"{err.detail} ({suffix})" if err.detail else suffix
+    code_no = data.get("error_code")
+    if code_no not in (None, "") and "error_code" not in err.detail:
+        tag = f" [error_code={code_no}]"
+        err.detail = f"{err.detail}{tag}" if err.detail else tag.lstrip()
+
+
 def _classify(status: int, error_code: int | None = None) -> BaleError:
     """Map a Bale failure (HTTP status and/or body error_code) to taxonomy.
 
@@ -173,11 +191,14 @@ class HttpBaleClient:
         if data.get("ok") is False:
             # ok:false with a body error_code (Bale's documented contract).
             err = _classify(response.status_code, error_code)
+            _attach_detail(err, data)
             with contextlib.suppress(ValueError, AttributeError, TypeError):
                 err.retry_after = float(data.get("parameters", {}).get("retry_after", 0))
             raise err
         if response.status_code >= 400:
-            raise _classify(response.status_code, error_code)
+            err = _classify(response.status_code, error_code)
+            _attach_detail(err, data)
+            raise err
         return data.get("result")
 
     # --- semantic surface (mirrors PlatformClient) ---
