@@ -1,6 +1,29 @@
 # Project Changelog & Architectural Decisions
 # دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-15 — OpenRouter selected as the external AI provider
+Owner direction (2026-09-15): the external AI token provider for this
+deployment is OpenRouter. Implemented as a first-class provider option:
+`AI_PROVIDER=openrouter` + `AI_OPENROUTER_BASE_URL` / `_API_KEY` /
+`_MODEL` (OpenAI-compatible gateway; vendor/model slugs; recommended
+X-Title attribution). Key handling follows the standing rule —
+environment only, never stored, never logged. OpenRouter 402
+(insufficient credits) is classified PERMANENT (not retried; credit
+refunded per AI spec section 12), 401/400 likewise; timeout/429/5xx
+stay transient with the bounded 3-attempt budget. The built-in
+template provider remains the dev/test default (offline, no keys);
+OpenRouter is enabled per deployment by environment.
+
+## 2026-09-15 — readyz import error fixed (production finding)
+The owner ran the build on the server and hit an import error on
+`/readyz`. Root cause: the readiness handler's lazy import
+(`from app.infrastructure.db import get_engine`) referenced a symbol the
+package `__init__` did not re-export, so EVERY /readyz call failed with
+`unavailable: ImportError` (masked as a DB problem by design of the
+check). Fix: re-export `get_engine`; regression test added asserting
+200/ok with a live engine (the old contract test allowed 503 and masked
+the bug).
+
 ## 2026-09-15 — Phase 5 platform/publication decisions approved
 Owner approved (6 structured questions, 2026-09-15):
 1. Publish mode V1: MANUAL only (explicit owner action per product per

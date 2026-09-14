@@ -64,6 +64,19 @@ def get_ai_provider() -> AIProvider:
             model=settings.ai_openai_model,
             timeout_seconds=settings.ai_request_timeout_seconds,
         )
+    if kind == "openrouter":
+        # OpenRouter is OpenAI-compatible; model slugs are vendor-prefixed
+        # (e.g. "openai/gpt-4o-mini"). X-Title is OpenRouter's optional
+        # attribution header (app name only — never secrets).
+        from app.infrastructure.ai.providers import OpenAICompatibleProvider
+
+        return OpenAICompatibleProvider(
+            base_url=settings.ai_openrouter_base_url,
+            api_key=settings.ai_openrouter_api_key,
+            model=settings.ai_openrouter_model,
+            timeout_seconds=settings.ai_request_timeout_seconds,
+            extra_headers={"X-Title": settings.app_name},
+        )
     from app.infrastructure.ai.providers import TemplateProvider
 
     return TemplateProvider()

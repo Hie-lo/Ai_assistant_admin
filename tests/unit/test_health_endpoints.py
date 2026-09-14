@@ -35,3 +35,14 @@ def test_readyz_reports_database_check(client: TestClient) -> None:
     body = client.get("/readyz").json()
     db_check = body["checks"]["database"]
     assert db_check == "ok" or db_check.startswith("unavailable")
+
+
+def test_readyz_is_ok_when_database_is_live(db_client: TestClient) -> None:
+    """Regression: with a reachable engine, /readyz must be 200/ok — never a
+    handler-level failure masquerading as a DB check (e.g. an ImportError in
+    the readiness handler must surface as a real 500, not 'unavailable')."""
+    resp = db_client.get("/readyz")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ready"] is True
+    assert body["checks"]["database"] == "ok"

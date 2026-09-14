@@ -1,5 +1,47 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-15 — Server fix + OpenRouter AI provider
+
+### Fixed
+- `/readyz` import error (found on the production server): the readiness
+  handler lazily imports `get_engine` from the `app.infrastructure.db`
+  package, which did not re-export it (defined in `...db.session`). The
+  handler masked this as "database: unavailable: ImportError" and always
+  answered 503. The package now re-exports `get_engine`, so readiness
+  reflects the real database state (200/ok when live, 503 with the
+  actual connectivity error when not).
+- Regression test added: with a live DB engine, `/readyz` must be 200
+  with `{"ready": true, "checks": {"database": "ok"}}`. Previously only
+  the no-DB contract test existed (it allows 503, which masked the bug).
+
+### Delivered — OpenRouter as an AI provider (owner request)
+- New first-class provider option `AI_PROVIDER=openrouter`: OpenRouter's
+  OpenAI-compatible `/chat/completions` endpoint with vendor/model slugs
+  (`openai/gpt-4o-mini`, `anthropic/claude-3.5-sonnet`,
+  `google/gemini-2.0-flash-001`, ...). The key (`sk-or-...`) comes from
+  the environment only — never stored, never logged (rule 14).
+  OpenRouter's recommended `X-Title` attribution header (app name) is
+  sent; no other custom headers.
+- Settings: `AI_OPENROUTER_BASE_URL` (default
+  `https://openrouter.ai/api/v1`, overridable), `AI_OPENROUTER_API_KEY`,
+  `AI_OPENROUTER_MODEL` (default `openai/gpt-4o-mini`). The generic
+  `openai_compatible` option is unchanged for other endpoints.
+- Failure classification (unchanged contract, now covered by tests for
+  the OpenRouter path): timeout/429/5xx -> transient (bounded retries;
+  total failure refunds the credit per AI spec section 12); 4xx —
+  including 401 (invalid key) and 402 (insufficient credits) ->
+  permanent (no retry, clear operator-visible error); response bodies
+  are never included in error messages or logs.
+- The built-in `template` provider remains the default (offline,
+  deterministic, no keys) — OpenRouter is enabled per deployment by
+  setting `AI_PROVIDER=openrouter` + the key.
+- Tests: +14 (provider transport contract: exact URL/headers/model,
+  attribution header, transient vs permanent classification incl. 402,
+  malformed payloads, no body leakage in errors; `get_ai_provider`
+  wiring for template / openai_compatible / openrouter incl. missing-key
+  permanent failure; `/readyz` regression with a live DB). Suite:
+  294 -> 308 passing.
+
 ## 2026-09-15 — Phase 5 implementation (Platform adapter / Telegram connection / Publication)
 
 ### Delivered

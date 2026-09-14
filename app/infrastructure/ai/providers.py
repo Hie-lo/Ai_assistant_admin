@@ -111,6 +111,7 @@ class OpenAICompatibleProvider:
         api_key: str,
         model: str,
         timeout_seconds: float = 30.0,
+        extra_headers: dict[str, str] | None = None,
     ) -> None:
         if not base_url or not api_key:
             raise PermanentAIFailure(
@@ -120,11 +121,15 @@ class OpenAICompatibleProvider:
         self._api_key = api_key
         self._model = model
         self._timeout = timeout_seconds
+        #: Optional provider-specific headers (e.g. OpenRouter attribution
+        #: X-Title). Never used for secrets; values are plain metadata.
+        self._extra_headers = dict(extra_headers or {})
 
     def generate(self, request: AIGenerationRequest) -> AIResult:
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
+            **self._extra_headers,
         }
         body = {
             "model": self._model,

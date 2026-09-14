@@ -5,6 +5,7 @@ from app.infrastructure.db.session import (
     create_engine_from_url,
     create_session_factory,
     get_db,
+    get_engine,
     reset_engine,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "create_engine_from_url",
     "create_session_factory",
     "get_db",
+    "get_engine",
     "reset_engine",
 ]

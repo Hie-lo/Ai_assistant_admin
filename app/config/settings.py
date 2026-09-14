@@ -64,14 +64,23 @@ class Settings(BaseSettings):
     subscription_grace_days: int = Field(default=7, ge=0, le=90)
 
     # --- AI provider (Phase 4) ---
-    # "template" (default, offline/deterministic) or "openai_compatible".
-    # Real credentials are configured operationally via environment; the
-    # key is never logged (AI spec + developer directive rule 14).
+    # "template" (default, offline/deterministic), "openai_compatible", or
+    # "openrouter". Real credentials are configured operationally via
+    # environment; keys are never logged (AI spec + directive rule 14).
     ai_provider: str = "template"
     ai_openai_base_url: str = ""
     ai_openai_api_key: str = ""
     ai_openai_model: str = "gpt-4o-mini"
     ai_request_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+
+    # --- OpenRouter (owner choice 2026-09-15) ---
+    # OpenAI-compatible gateway (AI_PROVIDER=openrouter). Model slugs use
+    # OpenRouter's vendor/model naming, e.g. "openai/gpt-4o-mini" or
+    # "anthropic/claude-3.5-sonnet". The key (sk-or-...) is an operational
+    # secret: environment only, never stored, never logged.
+    ai_openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    ai_openrouter_api_key: str = ""
+    ai_openrouter_model: str = "openai/gpt-4o-mini"
 
     # --- Telegram (Phase 5) ---
     # Shared organization bot (owner decision 2026-09-15): ONE platform-level
