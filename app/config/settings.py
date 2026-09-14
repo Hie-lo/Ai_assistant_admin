@@ -91,6 +91,10 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_api_base_url: str = "https://api.telegram.org"
     telegram_request_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    # Shared organization BALE bot (same model: platform-level, env-only).
+    bale_bot_token: str = ""
+    bale_api_base_url: str = "https://tapi.bale.ai"
+    bale_request_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
 
     @property
     def is_prod(self) -> bool:

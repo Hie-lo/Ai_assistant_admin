@@ -1,0 +1,315 @@
+#!/usr/bin/env python3
+"""Live certification of the BALE platform adapter (Phase 6, spec section 13).
+
+The owner-approved activation gate (2026-09-15): the adapter ships with
+fake-client tests (no network), and a human operator runs THIS script on
+the production server against the real shared org bot + a real channel to
+certify the live contract BEFORE Bale publication is enabled.
+
+Checks (PASS / FAIL / SKIP):
+  1. getMe              — the shared bot token works (bot id reported).
+  2. getChat            — the target chat exists and is addressable.
+  3. getChatMember      — the bot is creator/administrator of the chat.
+  4. sendMessage        — a test message is published (markdown-escaped).
+  5. editMessageText    — the test message is edited in place.
+  6. sendPhoto          — a photo-by-URL message is published (optional:
+                          BALE_CERT_PHOTO_URL; skipped when not provided).
+  7. sendMediaGroup     — an album of N photos (default 10 = our cap) is
+                          published; measure the live limit by raising
+                          BALE_CERT_ALBUM_SIZE (e.g. 15, 20) to discover
+                          Bale's own maximum.
+  8. editMessageCaption — the album caption is edited in place.
+  9. deleteMessage      — all test messages (younger than 48h) are deleted.
+ 10. 48h-delete-limit   — (optional: BALE_CERT_OLD_MESSAGE_ID) a message
+                          known to be OLDER than 48h is passed to
+                          deleteMessage and the API is expected to REJECT
+                          it. WARNING: if the message is younger than 48h
+                          it WILL be deleted — use a sacrificial one.
+ 11. rate-limit probe   — (optional: BALE_CERT_RATE_PROBE=<count>) fire
+                          <count> messages back to back and report whether
+                          429 + retry_after appears.
+
+The token is read from the environment (BALE_BOT_TOKEN) and is never
+printed; anything that could contain it is redacted. Exit code 0 = all
+non-optional checks PASS (Bale may be enabled); 1 = at least one FAIL.
+
+Usage (on the server, from the repo root):
+    BALE_BOT_TOKEN=<token> BALE_CERT_CHAT=@your_channel \
+    python scripts/certify_platform.py --platform bale \
+        [--photo-url URL] [--album-size N] [--rate-probe N] \
+        [--old-message-id ID]
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import time
+
+# Make the repo importable when run from any directory.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app.domain import enums  # noqa: E402
+from app.infrastructure.platforms.bale import (  # noqa: E402
+    BaleError,
+    HttpBaleClient,
+)
+
+PASS = "PASS"
+FAIL = "FAIL"
+SKIP = "SKIP"
+
+_TOKEN: str = ""
+
+
+def _redact(value: object) -> str:
+    """Never leak the token into output (rule 14)."""
+    s = str(value)
+    if _TOKEN:
+        s = s.replace(_TOKEN, "****")
+    return s
+
+
+class Report:
+    def __init__(self) -> None:
+        self.rows: list[tuple[str, str, str]] = []
+
+    def add(self, name: str, status: str, detail: str) -> None:
+        self.rows.append((name, status, detail))
+        print(f"  [{status}] {name}: {_redact(detail)}")
+
+    def ok(self) -> bool:
+        return not any(s == FAIL for _, s, _ in self.rows)
+
+
+def main() -> int:
+    global _TOKEN
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--platform", default="bale", choices=["bale"])
+    parser.add_argument("--chat", default=os.environ.get("BALE_CERT_CHAT", ""))
+    parser.add_argument("--photo-url", default=os.environ.get("BALE_CERT_PHOTO_URL", ""))
+    parser.add_argument(
+        "--album-size",
+        type=int,
+        default=int(os.environ.get("BALE_CERT_ALBUM_SIZE", "10")),
+    )
+    parser.add_argument(
+        "--rate-probe", type=int, default=int(os.environ.get("BALE_CERT_RATE_PROBE", "0"))
+    )
+    parser.add_argument(
+        "--old-message-id", default=os.environ.get("BALE_CERT_OLD_MESSAGE_ID", "")
+    )
+    args = parser.parse_args()
+
+    _TOKEN = os.environ.get("BALE_BOT_TOKEN", "")
+    base_url = os.environ.get("BALE_API_BASE_URL", "https://tapi.bale.ai")
+
+    print("== BALE live certification (Phase 6, spec section 13) ==")
+    if not _TOKEN:
+        print(f"  [{FAIL}] setup: BALE_BOT_TOKEN is not set in the environment")
+        return 1
+    if not args.chat:
+        print(f"  [{FAIL}] setup: --chat / BALE_CERT_CHAT is not set")
+        return 1
+    print(f"  target chat: {args.chat!r}  base: {base_url}")
+
+    report = Report()
+    client = HttpBaleClient(base_url=base_url, token=_TOKEN, timeout=30.0)
+    created: list[int] = []  # message ids we created (for cleanup)
+
+    # 1. getMe -------------------------------------------------------------
+    try:
+        me = client.get_me()
+        report.add("getMe", PASS, f"bot id={me.get('id')} username={me.get('username')}")
+        bot_id = int(me.get("id") or 0)
+    except BaleError as exc:
+        report.add("getMe", FAIL, f"{exc.code.value}: {exc.detail}")
+        return _finish(report, created)
+
+    # 2. getChat -----------------------------------------------------------
+    try:
+        chat = client.get_chat(args.chat)
+        chat_id = str(chat.get("id") or args.chat)
+        report.add("getChat", PASS, f"chat id={chat_id} type={chat.get('type')}")
+    except BaleError as exc:
+        report.add("getChat", FAIL, f"{exc.code.value}: {exc.detail}")
+        return _finish(report, created)
+
+    # 3. getChatMember -----------------------------------------------------
+    try:
+        member = client.get_chat_member(chat_id, bot_id)
+        status = member.get("status")
+        if status in ("creator", "administrator"):
+            report.add("getChatMember", PASS, f"bot status={status}")
+        else:
+            report.add(
+                "getChatMember", FAIL, f"bot status={status!r} — add the bot as admin"
+            )
+    except BaleError as exc:
+        report.add("getChatMember", FAIL, f"{exc.code.value}: {exc.detail}")
+        return _finish(report, created)
+
+    # 4. sendMessage -------------------------------------------------------
+    marker_text = f"certification {int(time.time())} *special* _chars_ [x](y) \\ done"
+    test_mid: int | None = None
+    try:
+        test_mid = client.send_message(chat_id, marker_text)
+        created.append(test_mid)
+        report.add("sendMessage", PASS, f"message_id={test_mid} (markdown escaped)")
+    except BaleError as exc:
+        report.add("sendMessage", FAIL, f"{exc.code.value}: {exc.detail}")
+
+    # 5. editMessageText ---------------------------------------------------
+    if test_mid is not None:
+        try:
+            client.edit_message_text(chat_id, test_mid, marker_text + " (edited)")
+            report.add("editMessageText", PASS, f"message_id={test_mid}")
+        except BaleError as exc:
+            report.add("editMessageText", FAIL, f"{exc.code.value}: {exc.detail}")
+    else:
+        report.add("editMessageText", SKIP, "no test message")
+
+    # 6. sendPhoto (optional) ----------------------------------------------
+    if args.photo_url:
+        try:
+            photo_mid = client.send_photo(
+                chat_id, args.photo_url, caption="certification photo"
+            )
+            created.append(photo_mid)
+            report.add("sendPhoto", PASS, f"message_id={photo_mid} (via URL)")
+        except BaleError as exc:
+            report.add("sendPhoto", FAIL, f"{exc.code.value}: {exc.detail}")
+    else:
+        report.add("sendPhoto", SKIP, "no --photo-url provided")
+
+    # 7. sendMediaGroup ------------------------------------------------------
+    album_mids: list[int] = []
+    # Same placeholder photo N times: content is irrelevant, the contract
+    # under test is the ALBUM mechanics (and the live item-count limit).
+    placeholder = "https://i.imgur.com/1V10c1P.jpg"
+    album_urls = [placeholder] * max(args.album_size, 1)
+    try:
+        album_mids = client.send_media_group(
+            chat_id, album_urls, caption="certification album"
+        )
+        created.extend(album_mids)
+        report.add(
+            "sendMediaGroup",
+            PASS,
+            f"album of {len(album_mids)} accepted (ids {len(album_mids)}); "
+            f"live limit is >= {args.album_size}",
+        )
+    except BaleError as exc:
+        report.add(
+            "sendMediaGroup",
+            FAIL,
+            f"{exc.code.value} for {args.album_size} items: {exc.detail} "
+            "(raise/lower BALE_CERT_ALBUM_SIZE to measure the limit)",
+        )
+
+    # 8. editMessageCaption --------------------------------------------------
+    if album_mids:
+        try:
+            client.edit_message_caption(chat_id, album_mids[0], "certification album (edited)")
+            report.add("editMessageCaption", PASS, f"message_id={album_mids[0]}")
+        except BaleError as exc:
+            report.add("editMessageCaption", FAIL, f"{exc.code.value}: {exc.detail}")
+    else:
+        report.add("editMessageCaption", SKIP, "no album")
+
+    # 10. 48h delete limit (optional, BEFORE the young-message cleanup) -----
+    if args.old_message_id:
+        try:
+            client.delete_message(chat_id, int(args.old_message_id))
+            report.add(
+                "48h-delete-limit",
+                FAIL,
+                "deleteMessage SUCCEEDED on a message that should be older "
+                "than 48h — check the message (it was deleted)",
+            )
+        except BaleError as exc:
+            report.add(
+                "48h-delete-limit",
+                PASS,
+                f"API rejected the old delete as expected ({exc.code.value}) — "
+                "lingering policy is the correct handling",
+            )
+    else:
+        report.add("48h-delete-limit", SKIP, "no --old-message-id provided")
+
+    # 11. rate-limit probe (optional) ---------------------------------------
+    if args.rate_probe > 1:
+        probe_ids: list[int] = []
+        rate_limited = 0
+        max_retry = 0.0
+        try:
+            for i in range(args.rate_probe):
+                try:
+                    probe_ids.append(client.send_message(chat_id, f"rate probe {i}"))
+                except BaleError as exc:
+                    if exc.code is enums.PublicationErrorCode.RATE_LIMITED:
+                        rate_limited += 1
+                        max_retry = max(max_retry, exc.retry_after)
+                    else:
+                        raise
+            created.extend(probe_ids)
+            report.add(
+                "rate-limit-probe",
+                PASS,
+                f"{len(probe_ids)}/{args.rate_probe} sent, 429s seen: "
+                f"{rate_limited}, max retry_after={max_retry:.0f}s",
+            )
+        except BaleError as exc:
+            report.add("rate-limit-probe", FAIL, f"{exc.code.value}: {exc.detail}")
+    else:
+        report.add("rate-limit-probe", SKIP, "no --rate-probe provided")
+
+    # 9. deleteMessage cleanup (young messages must delete fine) ------------
+    if created:
+        deleted = 0
+        for mid in created:
+            try:
+                client.delete_message(chat_id, mid)
+                deleted += 1
+            except BaleError as exc:
+                report.add(
+                    "deleteMessage",
+                    FAIL,
+                    f"could not delete our own fresh message {mid}: "
+                    f"{exc.code.value}: {exc.detail}",
+                )
+                break
+        else:
+            report.add(
+                "deleteMessage",
+                PASS,
+                f"all {deleted} fresh test message(s) deleted (48h window OK)",
+            )
+        print(f"  cleanup: {deleted}/{len(created)} test messages deleted")
+    else:
+        report.add("deleteMessage", SKIP, "no test messages were created")
+
+    return _finish(report, created)
+
+
+def _finish(report: Report, created: list[int]) -> int:
+    print()
+    print("== summary ==")
+    for name, status, _ in report.rows:
+        print(f"  [{status}] {name}")
+    if report.ok():
+        print("\nRESULT: CERTIFIED — Bale publication may be enabled.")
+        return 0
+    print("\nRESULT: NOT CERTIFIED — fix the FAIL items and re-run.")
+    if created:
+        print(
+            "WARNING: "
+            f"{len(created)} test message(s) may remain in the chat; "
+            "delete them manually."
+        )
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,7 +1,8 @@
 """Publication service (Phase 5 application layer).
 
-Manual publish/update/repost/delete/reconcile for Telegram V1
-(owner-approved 2026-09-15). Publication runs SYNCHRONOUSLY in the request
+Manual publish/update/repost/delete/reconcile for Telegram V1 and
+Bale Phase 6 (owner-approved 2026-09-15). Publication runs SYNCHRONOUSLY
+in the request
 (queue workers are Phase 8); the state machine, idempotency and attempt
 records are identical to what the workers will drive later.
 
@@ -39,7 +40,7 @@ from app.infrastructure.db.models import (
     PublicationAttempt,
     User,
 )
-from app.infrastructure.platforms import telegram as tg
+from app.infrastructure.platforms import base as platforms
 
 #: Statuses that occupy the (connection, product) slot: everything that is
 #: not a dead end. A live publication blocks a NEW publish (effectively-
@@ -97,8 +98,8 @@ def _require_verified(
     db: Session, *, business: Business, connection_id: uuid.UUID
 ) -> PlatformConnection:
     conn = _get_connection(db, business=business, connection_id=connection_id)
-    if conn.platform != enums.Platform.TELEGRAM.value:
-        raise ValidationError("unsupported platform")
+    if conn.platform not in platforms.SUPPORTED_PLATFORMS:
+        raise ValidationError(f"unsupported platform: {conn.platform}")
     if conn.status != enums.PlatformConnectionStatus.VERIFIED.value:
         raise ConflictError("the connection must be verified before publishing")
     return conn
@@ -159,14 +160,15 @@ def _transition(pub: Publication, target: enums.PublicationStatus) -> None:
 
 
 def _render_for_platform(
-    db: Session, *, business: Business, product_id: uuid.UUID, caps: tg.TelegramCapabilities
+    db: Session, *, business: Business, product_id: uuid.UUID, caps
 ) -> tuple[str, list[str]]:
     """Render through the Phase 4 engine under the platform's hard limits.
 
     Without media the text is plain text (<=4096). With media the text is
-    the CAPTION (<=1024): when the full text would overflow, the renderer
-    re-renders with the caption limit — trimming by approved priority and
-    BLOCKING (never silently truncating) when the essentials don't fit.
+    the CAPTION (single-media or album limit per platform): when the full
+    text would overflow, the renderer re-renders with the caption limit —
+    trimming by approved priority and BLOCKING (never silently truncating)
+    when the essentials don't fit.
     Media is capped at the platform's album size (first N eligible).
     """
     preview = content_preview.preview_product(
@@ -176,12 +178,13 @@ def _render_for_platform(
     if preview["blocked_reason"]:
         raise ValidationError(preview["blocked_reason"])
     text = preview["text"]
-    if media and len(text) > caps.caption_max_length:
+    caption_limit = caps.caption_limit_for(len(media))
+    if media and len(text) > caption_limit:
         preview = content_preview.preview_product(
             db,
             business=business,
             product_id=product_id,
-            max_length=caps.caption_max_length,
+            max_length=caption_limit,
         )
         if preview["blocked_reason"]:
             raise ValidationError(preview["blocked_reason"])
@@ -256,7 +259,7 @@ def publish(
     if existing is not None:
         return {"publication": existing, "created": False}
 
-    caps = tg.TELEGRAM_CAPABILITIES
+    caps = platforms.get_capabilities(conn.platform)
     text, media = _render_for_platform(
         db, business=business, product_id=product.product_id, caps=caps
     )
@@ -287,20 +290,22 @@ def publish(
     _transition(pub, enums.PublicationStatus.QUEUED)
     _transition(pub, enums.PublicationStatus.PUBLISHING)
 
-    client = tg.get_telegram_client()
+    client = platforms.get_platform_client(conn.platform)
     chat_id = conn.platform_target_id
     try:
-        if media:
+        if len(media) == 1:
+            remote_id = str(client.send_photo(chat_id, media[0], caption=text))
+        elif media:
             ids = client.send_media_group(chat_id, media, caption=text)
             remote_id = str(ids[0]) if ids else None
             if not remote_id:
-                raise tg.TelegramError(
+                raise platforms.PlatformError(
                     enums.PublicationErrorCode.REMOTE_UNKNOWN,
                     "media group accepted without a message id",
                 )
         else:
             remote_id = str(client.send_message(chat_id, text))
-    except tg.TelegramError as exc:
+    except platforms.PlatformError as exc:
         if exc.code is enums.PublicationErrorCode.NETWORK_TIMEOUT:
             _transition(pub, enums.PublicationStatus.UNKNOWN_REMOTE_STATE)
             pub.error_code = exc.code.value
@@ -372,12 +377,6 @@ def publish(
     return {"publication": pub, "created": True}
 
 
-def _render_snapshot(db: Session, *, business: Business, product_id: uuid.UUID):
-    caps = tg.TELEGRAM_CAPABILITIES
-    text, media = _render_for_platform(db, business=business, product_id=product_id, caps=caps)
-    return text, media
-
-
 def update_publication(
     db: Session, *, business: Business, actor: User, publication_id: uuid.UUID
 ) -> dict:
@@ -403,7 +402,7 @@ def update_publication(
         content_fingerprint=old_version.content_fingerprint,
         media_fingerprint=old_version.media_fingerprint,
     )
-    caps = tg.TELEGRAM_CAPABILITIES
+    caps = platforms.get_capabilities(conn.platform)
     text, media = _render_for_platform(
         db, business=business, product_id=product.product_id, caps=caps
     )
@@ -441,13 +440,13 @@ def _execute_edit(
         db, business=business, product=product, text=text, media=media
     )
     conn = db.get(PlatformConnection, pub.connection_id)
-    client = tg.get_telegram_client()
+    client = platforms.get_platform_client(conn.platform)
     try:
         if media:
             client.edit_message_caption(conn.platform_target_id, int(pub.remote_message_id), text)
         else:
             client.edit_message_text(conn.platform_target_id, int(pub.remote_message_id), text)
-    except tg.TelegramError as exc:
+    except platforms.PlatformError as exc:
         _apply_remote_failure(db, pub, exc, operation=enums.PublicationOperation.EDIT)
         return {"publication": pub, "plan": pubdomain.UpdatePlan.EDIT.value, "updated": False}
 
@@ -473,7 +472,7 @@ def _execute_edit(
 
 
 def _apply_remote_failure(
-    db: Session, pub: Publication, exc: tg.TelegramError, *, operation
+    db: Session, pub: Publication, exc: platforms.PlatformError, *, operation
 ) -> None:
     if exc.code is enums.PublicationErrorCode.NETWORK_TIMEOUT:
         target = enums.PublicationStatus.UNKNOWN_REMOTE_STATE
@@ -497,7 +496,7 @@ def _apply_remote_failure(
 
 
 def _delete_old_remote(
-    db: Session, *, pub: Publication, conn: PlatformConnection, client: tg.TelegramClient
+    db: Session, *, pub: Publication, conn: PlatformConnection, client
 ) -> None:
     """Delete the old remote message of `pub` (already PUBLISHED).
 
@@ -509,7 +508,7 @@ def _delete_old_remote(
     _transition(pub, enums.PublicationStatus.DELETING)
     try:
         client.delete_message(conn.platform_target_id, int(pub.remote_message_id))
-    except tg.TelegramError as exc:
+    except platforms.PlatformError as exc:
         if exc.code is enums.PublicationErrorCode.NOT_FOUND:
             pub.remote_message_id = None
             _transition(pub, enums.PublicationStatus.REMOTE_DELETED)
@@ -569,19 +568,23 @@ def _execute_repost(
     _transition(new_pub, enums.PublicationStatus.QUEUED)
     _transition(new_pub, enums.PublicationStatus.PUBLISHING)
 
-    client = tg.get_telegram_client()
+    client = platforms.get_platform_client(conn.platform)
     try:
-        if media:
+        if len(media) == 1:
+            remote_id = str(
+                client.send_photo(conn.platform_target_id, media[0], caption=text)
+            )
+        elif media:
             ids = client.send_media_group(conn.platform_target_id, media, caption=text)
             remote_id = str(ids[0]) if ids else None
             if not remote_id:
-                raise tg.TelegramError(
+                raise platforms.PlatformError(
                     enums.PublicationErrorCode.REMOTE_UNKNOWN,
                     "media group accepted without a message id",
                 )
         else:
             remote_id = str(client.send_message(conn.platform_target_id, text))
-    except tg.TelegramError as exc:
+    except platforms.PlatformError as exc:
         # The OLD publication stays untouched; only the new intent failed.
         _apply_remote_failure(
             db, new_pub, exc, operation=enums.PublicationOperation.REPOST
@@ -603,12 +606,20 @@ def _execute_repost(
 
     new_pub.remote_message_id = remote_id
     new_pub.remote_fingerprint = _fp(text)
+    caps = platforms.get_capabilities(conn.platform)
 
-    # Step 2: verify the new remote message really exists.
-    try:
-        checked = client.get_message(conn.platform_target_id, int(remote_id))
-    except tg.TelegramError:
-        checked = None
+    # Step 2: verify the new remote message really exists — where the
+    # platform allows inspection. Platforms without a message-lookup
+    # method (Bale) treat the API's accepted send (which returned the
+    # message id) as verified: an explicit rule, not silent emulation.
+    checked = None
+    if caps.inspect_remote:
+        try:
+            checked = client.get_message(conn.platform_target_id, int(remote_id))
+        except platforms.PlatformError:
+            checked = None
+    else:
+        checked = {"verified_by_api": True}
     if checked is None:
         # New message unverifiable: leave it UNKNOWN for reconciliation;
         # do NOT touch the old one (both may exist — safe).
@@ -680,7 +691,7 @@ def repost_publication(
     conn = _get_connection(db, business=business, connection_id=pub.connection_id)
     if conn.status != enums.PlatformConnectionStatus.VERIFIED.value:
         raise ConflictError("the connection must be verified before publishing")
-    caps = tg.TELEGRAM_CAPABILITIES
+    caps = platforms.get_capabilities(conn.platform)
     text, media = _render_for_platform(
         db, business=business, product_id=product.product_id, caps=caps
     )
@@ -701,7 +712,7 @@ def delete_publication(
     if not pub.remote_message_id:
         raise ConflictError("the publication has no remote message to delete")
     conn = db.get(PlatformConnection, pub.connection_id)
-    _delete_old_remote(db, pub=pub, conn=conn, client=tg.get_telegram_client())
+    _delete_old_remote(db, pub=pub, conn=conn, client=platforms.get_platform_client(conn.platform))
     if pub.status != enums.PublicationStatus.REMOTE_DELETED.value:
         return {"publication": pub, "deleted": False}
     _archive_post_if_empty(db, pub)
@@ -744,7 +755,16 @@ def check_publication(
         raise ConflictError(
             f"only published/unknown/suspended publications can be checked (status: {pub.status})"
         )
-    finding = _reconcile_remote(db, pub, client=tg.get_telegram_client())
+    conn = db.get(PlatformConnection, pub.connection_id)
+    if not platforms.get_capabilities(conn.platform).inspect_remote:
+        raise ConflictError(
+            "remote inspection is not supported on "
+            f"{conn.platform} (no message lookup); the state is maintained "
+            "from operation results"
+        )
+    finding = _reconcile_remote(
+        db, pub, client=platforms.get_platform_client(conn.platform)
+    )
     _attempt(
         db,
         publication=pub,
@@ -765,7 +785,7 @@ def check_publication(
 
 
 def _reconcile_remote(
-    db: Session, pub: Publication, *, client: tg.TelegramClient
+    db: Session, pub: Publication, *, client
 ) -> str:
     """Query the remote state and move the publication to a confirmed state.
 
@@ -776,6 +796,11 @@ def _reconcile_remote(
       flagged ``remote_modified`` and never overwritten (spec section 17).
     """
     conn = db.get(PlatformConnection, pub.connection_id)
+    if not platforms.get_capabilities(conn.platform).inspect_remote:
+        raise ConflictError(
+            "remote inspection is not supported on this platform "
+            f"({conn.platform})"
+        )
     if not pub.remote_message_id:
         # No remote identity to query (e.g. a publish timeout lost the
         # message id). V1 cannot recover the id without remote search:
@@ -790,7 +815,7 @@ def _reconcile_remote(
         message = client.get_message(
             conn.platform_target_id, int(pub.remote_message_id)
         )
-    except tg.TelegramError as exc:
+    except platforms.PlatformError as exc:
         if exc.code is enums.PublicationErrorCode.NOT_FOUND:
             message = None
         else:
@@ -813,14 +838,16 @@ def _reconcile_remote(
 
     version = db.get(PostVersion, pub.post_version_id)
     remote_text = str(message.get("text") or message.get("caption") or "")
-    if version is not None and _fp(remote_text) != version.content_fingerprint:
+    if version is not None and not platforms.remote_text_matches(
+        conn.platform, remote_text, version.content_fingerprint
+    ):
         pub.remote_modified = True
     _transition(pub, enums.PublicationStatus.PUBLISHED)
     return "published"
 
 
 def _complete_interrupted_repost(
-    db: Session, *, pub: Publication, conn: PlatformConnection, client: tg.TelegramClient
+    db: Session, *, pub: Publication, conn: PlatformConnection, client
 ) -> None:
     """Complete the interrupted final step of a repost.
 
@@ -840,6 +867,26 @@ def _complete_interrupted_repost(
         return
     # `sibling` is the OLD message of an interrupted repost: delete it.
     _delete_old_remote(db, pub=sibling, conn=conn, client=client)
+
+
+def _resume_without_inspection(db: Session, pub: Publication) -> None:
+    """Resume a suspended publication on a platform WITHOUT remote lookup.
+
+    Bale has no message-lookup method, so reconciliation cannot confirm
+    the message still exists. We never deleted it and the connection just
+    re-verified, so resuming to PUBLISHED is the explicit recovery — the
+    attempt record documents that no remote inspection happened (adapter
+    spec section 8: no silent fallback).
+    """
+    _transition(pub, enums.PublicationStatus.PUBLISHED)
+    _attempt(
+        db,
+        publication=pub,
+        operation=enums.PublicationOperation.RECONCILE,
+        status=enums.AttemptStatus.SUCCESS,
+        error_detail="resumed after re-verification; no remote inspection "
+        "(platform has no message lookup)",
+    )
 
 
 def list_publications(

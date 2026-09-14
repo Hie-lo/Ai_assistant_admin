@@ -1,8 +1,9 @@
-"""Platform connection service (Phase 5, Telegram V1).
+"""Platform connection service (Phase 5 Telegram, Phase 6 Bale).
 
-Owner decision 2026-09-15: ONE shared organization bot managed by the
-platform operator (credential from the environment). A business connects a
-target channel/group it has added the bot to as admin.
+Owner decision 2026-09-15: ONE shared organization bot PER PLATFORM
+managed by the platform operator (credential from the environment; Telegram
+V1, Bale Phase 6). A business connects a target channel/group it has added
+the bot to as admin.
 
 Connection verification proves technical control (adapter spec section 11):
 1. the shared bot works (getMe);
@@ -29,7 +30,7 @@ from app.infrastructure.db.models import (
     Publication,
     User,
 )
-from app.infrastructure.platforms import telegram as tg
+from app.infrastructure.platforms import base as platforms
 
 #: Bot chat-member statuses that prove control.
 _ADMIN_STATUSES = frozenset({"creator", "administrator"})
@@ -50,8 +51,9 @@ def _target_key(target: str) -> str:
     return target
 
 
-def _client() -> tg.TelegramClient:
-    return tg.get_telegram_client()
+def _client(conn: PlatformConnection):
+    """Resolve the shared bot client for the connection's platform."""
+    return platforms.get_platform_client(conn.platform)
 
 
 def _get_connection(
@@ -74,7 +76,7 @@ def list_connections(db: Session, *, business: Business) -> list[PlatformConnect
 
 
 def _verify_with_client(
-    db: Session, conn: PlatformConnection, client: tg.TelegramClient
+    db: Session, conn: PlatformConnection, client
 ) -> PlatformConnection:
     """Run the three-step verification; moves the connection status.
 
@@ -83,14 +85,14 @@ def _verify_with_client(
     """
     try:
         me = client.get_me()
-    except tg.TelegramError as exc:
+    except platforms.PlatformError as exc:
         if exc.code in (
             enums.PublicationErrorCode.AUTHENTICATION_ERROR,
             enums.PublicationErrorCode.NETWORK_TIMEOUT,
             enums.PublicationErrorCode.NETWORK_ERROR,
         ):
             raise ValidationError(
-                "the shared Telegram bot is not available "
+                f"the shared {conn.platform} bot is not available "
                 f"({exc.code.value}); check the platform configuration"
             ) from exc
         conn.status = enums.PlatformConnectionStatus.PERMISSION_LOST.value
@@ -99,11 +101,11 @@ def _verify_with_client(
         return conn
     bot_id = int(me.get("id") or 0)
     if not bot_id:
-        raise ValidationError("the shared Telegram bot did not report an identity")
+        raise ValidationError(f"the shared {conn.platform} bot did not report an identity")
 
     try:
         chat = client.get_chat(conn.platform_target_id)
-    except tg.TelegramError as exc:
+    except platforms.PlatformError as exc:
         conn.status = enums.PlatformConnectionStatus.PERMISSION_LOST.value
         conn.last_error_code = exc.code.value
         db.flush()
@@ -127,7 +129,7 @@ def _verify_with_client(
 
     try:
         member = client.get_chat_member(chat_id, bot_id)
-    except tg.TelegramError as exc:
+    except platforms.PlatformError as exc:
         conn.status = enums.PlatformConnectionStatus.PERMISSION_LOST.value
         conn.last_error_code = exc.code.value
         db.flush()
@@ -201,6 +203,8 @@ def _resume_suspended(db: Session, conn: PlatformConnection) -> None:
     from app.application import publications as pubsvc
     from app.domain import enums as e
 
+    caps = platforms.get_capabilities(conn.platform)
+    client = _client(conn)
     for pub in db.scalars(
         select(Publication).where(
             Publication.connection_id == conn.connection_id,
@@ -212,7 +216,13 @@ def _resume_suspended(db: Session, conn: PlatformConnection) -> None:
             ),
         )
     ).all():
-        pubsvc._reconcile_remote(db, pub, client=_client())
+        if caps.inspect_remote:
+            pubsvc._reconcile_remote(db, pub, client=client)
+        else:
+            # No remote lookup exists on this platform (Bale): resume from
+            # the suspended state explicitly instead of pretending to
+            # inspect (adapter spec section 8: no silent fallback).
+            pubsvc._resume_without_inspection(db, pub)
 
 
 def create_connection(
@@ -223,8 +233,12 @@ def create_connection(
     platform: str,
     target: str,
 ) -> PlatformConnection:
-    if platform != enums.Platform.TELEGRAM.value:
-        raise ValidationError("only the TELEGRAM platform is available in V1")
+    if platform not in platforms.SUPPORTED_PLATFORMS:
+        raise ValidationError(
+            "only the "
+            + " and ".join(platforms.SUPPORTED_PLATFORMS)
+            + " platforms are available in V1"
+        )
     target = _target_key(target)
     existing = db.scalars(
         select(PlatformConnection).where(
@@ -247,7 +261,7 @@ def create_connection(
     )
     db.add(conn)
     db.flush()
-    _verify_with_client(db, conn, _client())
+    _verify_with_client(db, conn, _client(conn))
     AuditService(db).record(
         action="connection.created",
         actor_user_id=actor.user_id,
@@ -265,7 +279,7 @@ def verify_connection(
     conn = _get_connection(db, business=business, connection_id=connection_id)
     if conn.status == enums.PlatformConnectionStatus.DISCONNECTED.value:
         raise ConflictError("a disconnected connection cannot be re-verified; reconnect it")
-    _verify_with_client(db, conn, _client())
+    _verify_with_client(db, conn, _client(conn))
     AuditService(db).record(
         action="connection.verified",
         actor_user_id=actor.user_id,
@@ -286,7 +300,7 @@ def reconnect_connection(
         raise ConflictError("only a disconnected connection can be reconnected")
     conn.status = enums.PlatformConnectionStatus.PENDING_VERIFICATION.value
     db.flush()
-    _verify_with_client(db, conn, _client())
+    _verify_with_client(db, conn, _client(conn))
     AuditService(db).record(
         action="connection.reconnected",
         actor_user_id=actor.user_id,

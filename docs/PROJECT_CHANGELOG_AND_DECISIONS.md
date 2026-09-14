@@ -1,7 +1,57 @@
 # Project Changelog & Architectural Decisions
 # دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-15 — Phase 6: Bale platform decisions approved + adapter delivered
+Owner approved (5 structured questions, 2026-09-15):
+1. BALE bot model: ORGANIZATIONAL SHARED BOT — the same model as
+   Telegram (one platform-level bot per platform; token from env,
+   never stored per business, never logged; the owner adds the bot as
+   admin to its channel and connects the target).
+2. Media: albums up to 10 (Bale documents sendMediaGroup but NOT a max
+   item count — 10 is the conservative Telegram-equivalent until the
+   live certification measures Bale's own limit).
+3. Markdown: ESCAPE special characters on the wire. Bale parses EVERY
+   message as markdown (bold/italic/links), so unescaped product text
+   containing `* _ [ ] ( )` would be reinterpreted; the adapter
+   escapes them (with an exact unescape inverse for reconciliation).
+4. 48h delete limit: LINGERING TRACKED STATE. Bale only allows deleting
+   messages younger than 48h; when the old message of a repost is too
+   old, the new message stays live and the old publication is tracked
+   (FAILED_FINAL, remote id kept) for manual owner deletion in the app.
+5. Activation: adapter + fake-client tests ship now; the operator runs
+   the LIVE certification script (`scripts/certify_platform.py`, spec
+   section 13 checklist: getMe, getChat, getChatMember admin,
+   sendMessage, editMessageText, sendPhoto, sendMediaGroup,
+   editMessageCaption, deleteMessage, optional 48h probe + rate probe)
+   on the server as the gate before enabling Bale publication.
+
+Implementation notes (architectural):
+- New multi-platform core `app/infrastructure/platforms/base.py`:
+  PlatformError / PlatformClient / PlatformCapabilities + a lazily
+  built per-platform client registry. The publication core no longer
+  imports Telegram; it resolves client + capabilities by
+  `connection.platform` (adding Eitaa/Rubika in Phase 7 is now one
+  adapter module + one registry entry).
+- `send_photo` added to the semantic surface: single media uses
+  sendPhoto on BOTH platforms (Bale's single-photo caption is 4096
+  while album items are 1024 — the declared capabilities are now real
+  on the wire).
+- Bale has NO message-lookup method: `inspect_remote=False`. Publish
+  verification = API-accepted send; `check` is an explicit conflict
+  (no silent fallback, spec section 8); suspended publications resume
+  after (re)verification with an attempt record noting the missing
+  inspection.
+- State machine: DELETING -> FAILED_FINAL is now a legal transition
+  (a non-retryable delete failure — e.g. Bale's 48h limit, or a 403
+  delete on Telegram — must land in a tracked final state instead of
+  crashing the request).
+- Settings: `BALE_BOT_TOKEN`, `BALE_API_BASE_URL`
+  (default `https://tapi.bale.ai`), `BALE_REQUEST_TIMEOUT_SECONDS`.
+- Tests: +41 (16 unit + 20 integration + assertions); suite 308 -> 349
+  passing; ruff clean.
+
 ## 2026-09-15 — OpenRouter selected as the external AI provider
+
 Owner direction (2026-09-15): the external AI token provider for this
 deployment is OpenRouter. Implemented as a first-class provider option:
 `AI_PROVIDER=openrouter` + `AI_OPENROUTER_BASE_URL` / `_API_KEY` /

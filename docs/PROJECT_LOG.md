@@ -1,6 +1,87 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-15 — Phase 6: Bale platform (adapter + multi-platform core + certification tool)
+
+### Delivered — Bale publication capability (owner-approved 2026-09-15, 5 design questions)
+- Multi-platform core (`app/infrastructure/platforms/base.py`): ONE
+  semantic client surface (`PlatformClient`, now incl. `send_photo` for
+  single media) and ONE capability shape (`PlatformCapabilities` with
+  separate single-media / album caption limits + `caption_limit_for`).
+  The publication state machine, idempotency, attempts and
+  reconciliation are shared across platforms; adapters add transport +
+  capability data + platform-specific transforms. Client resolution and
+  capability lookup go through a registry keyed by platform (built
+  lazily to avoid import cycles); adding a platform = one module + one
+  registry entry.
+- Bale adapter (`app/infrastructure/platforms/bale.py`), contract
+  verified against the official docs (docs.bale.ai, 2026-09-15):
+  - base URL `https://tapi.bale.ai/bot<token>/METHOD`; failures
+    classified from BOTH the HTTP status and the documented
+    `ok:false`/`error_code` body (body wins), `retry_after` from
+    `parameters` on 429.
+  - limits: text 4096; single-media caption 4096 (`sendPhoto`);
+    album-item caption 1024 (`sendMediaGroup` items; max count
+    undocumented -> conservative 10 until live certification measures
+    it); ids up to 52-bit (stored as strings).
+  - **markdown escaping**: Bale parses every message as markdown, so the
+    adapter escapes `\ _ * [ ] ( )` on the wire and stores an exact
+    `unescape_markdown` inverse; reconciliation compares the raw form
+    AND the unescaped form against the clean fingerprint (no false
+    `remote_modified` on our own content).
+  - **no message-lookup method exists** -> `inspect_remote=False`:
+    publish verification treats the API's accepted send (message id
+    returned) as verified; `check`/reconciliation is an EXPLICIT 409
+    "remote inspection is not supported" (spec section 8: no silent
+    fallback); after (re)verification, suspended publications resume
+    with an attempt record documenting that no inspection happened.
+- Owner decisions implemented (2026-09-15):
+  1. BALE bot = shared ORGANIZATIONAL bot (same model as Telegram):
+     token from env (`BALE_BOT_TOKEN`), never stored per business,
+     never logged; connection verification is the same three-step
+     proof of control.
+  2. Albums up to 10 (conservative; measured live at certification).
+  3. Markdown special characters escaped on the wire.
+  4. **48h delete limit (lingering)**: Bale only allows deleting
+     messages younger than 48h. When the OLD message of a repost is too
+     old, the NEW message stays live and the OLD publication ends in
+     FAILED_FINAL with its remote message id KEPT (tracked lingering
+     state) so the owner can delete it manually in the app — never
+     silently lost. State machine now allows DELETING -> FAILED_FINAL
+     (this gap would have crashed ANY non-retryable delete failure,
+     e.g. a 403 on Telegram too).
+  5. Activation gate = this adapter + fake-client tests now, then a
+     LIVE certification run by the operator on the server
+     (`scripts/certify_platform.py`, spec section 13 checklist):
+     getMe, getChat, getChatMember admin, sendMessage,
+     editMessageText, sendPhoto (optional URL), sendMediaGroup (album
+     size configurable to measure the live limit), editMessageCaption,
+     deleteMessage, optional 48h-delete-limit probe (sacrificial old
+     message id) and optional rate-limit probe. PASS/FAIL/SKIP report;
+     token never printed; exit 0 = certifiable.
+- Services refactored off the Telegram hard-coding:
+  `platform_connections` (accept TELEGRAM + BALE; per-connection client
+  resolution; platform-aware "shared bot unavailable" errors) and
+  `publications` (capability-driven rendering incl. per-platform caption
+  limits; single media goes through `sendPhoto` on both platforms so
+  the declared single-media caption limits are real on the wire;
+  platform-aware error handling and reconciliation).
+- Telegram behavior is UNCHANGED (same limits, same flows); its
+  `TelegramError`/`TelegramCapabilities` remain as compatibility aliases
+  of the shared base types.
+
+### Tests
++41: 16 unit (Bale escaping round-trip, error classification from body
+error_code vs HTTP status, transport contract with no network,
+inspection-unsupported rule, override seam) + 20 integration (Bale
+connection verification, publish text/album/single-photo, caption
+limits 4096-vs-1024 behavior, timeout->unknown + explicit check
+conflict, edit, repost, the 48h lingering scenario end-to-end,
+permission loss/disconnect suspension + resume without inspection,
+cross-tenant isolation) + capabilities/transition assertions.
+Suite: 308 -> 349 passing (2 skipped), ruff clean.
+
 ## 2026-09-15 — Server fix + OpenRouter AI provider
+
 
 ### Fixed
 - `/readyz` import error (found on the production server): the readiness

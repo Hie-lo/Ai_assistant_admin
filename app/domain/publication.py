@@ -89,6 +89,7 @@ ALLOWED_TRANSITIONS: dict[S, frozenset[S]] = {
         {
             S.REMOTE_DELETED,
             S.FAILED_RETRYABLE,
+            S.FAILED_FINAL,
             S.UNKNOWN_REMOTE_STATE,
             S.DISCONNECTED,
             S.PERMISSION_LOST,

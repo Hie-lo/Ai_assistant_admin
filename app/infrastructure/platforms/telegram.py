@@ -17,43 +17,43 @@ hard-coded across the core (adapter spec section 4).
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
 
 from app.domain import enums
+from app.infrastructure.platforms.base import PlatformCapabilities, PlatformError
+
+__all__ = [
+    "TELEGRAM_CAPABILITIES",
+    "TelegramCapabilities",
+    "TelegramClient",
+    "TelegramError",
+    "HttpTelegramClient",
+    "build_client",
+    "get_telegram_client",
+    "set_telegram_client_override",
+]
 
 
-class TelegramError(Exception):
+class TelegramError(PlatformError):
     """Normalized Telegram failure carrying a taxonomy error code."""
 
     def __init__(self, code: enums.PublicationErrorCode, detail: str = "") -> None:
-        super().__init__(detail or code.value)
-        self.code = code
-        self.detail = detail
-        #: Seconds to wait before a rate-limited retry (0 otherwise).
-        self.retry_after: float = 0.0
+        super().__init__(code, detail)
 
 
 #: Verified Telegram Bot API limits (adapter spec section 4; official Bot API
-#: documents sendMessage text 1-4096 after entity parsing).
-@dataclass(frozen=True)
-class TelegramCapabilities:
-    platform: str = "TELEGRAM"
-    send_text: bool = True
-    send_single_media: bool = True
-    send_media_group: bool = True
-    edit_text: bool = True
-    edit_caption: bool = True
-    delete: bool = True
-    inspect_remote: bool = True
-    text_max_length: int = 4096
-    caption_max_length: int = 1024
-    media_group_max: int = 10
+#: documents sendMessage text 1-4096 after entities parsing).
+TelegramCapabilities = PlatformCapabilities
 
-
-TELEGRAM_CAPABILITIES = TelegramCapabilities()
+TELEGRAM_CAPABILITIES = PlatformCapabilities(
+    platform="TELEGRAM",
+    text_max_length=4096,
+    single_media_caption_max_length=1024,
+    album_caption_max_length=1024,
+    media_group_max=10,
+)
 
 
 class TelegramClient(Protocol):
@@ -159,6 +159,13 @@ class HttpTelegramClient:
         result = self._call("sendMessage", {"chat_id": chat_id, "text": text})
         return int(result["message_id"])  # type: ignore[index]
 
+    def send_photo(self, chat_id: str, url: str, caption: str = "") -> int:
+        payload: dict = {"chat_id": chat_id, "photo": url}
+        if caption:
+            payload["caption"] = caption
+        result = self._call("sendPhoto", payload)
+        return int(result["message_id"])  # type: ignore[index]
+
     def send_media_group(self, chat_id: str, media_urls: list[str], caption: str = "") -> list[int]:
         media = [{"type": "photo", "media": url} for url in media_urls]
         payload: dict = {"chat_id": chat_id, "media": media}
@@ -204,19 +211,8 @@ class HttpTelegramClient:
         return dict(result) if isinstance(result, dict) else None
 
 
-_client_override: TelegramClient | None = None
-
-
-def set_telegram_client_override(client: TelegramClient | None) -> None:
-    """Test/dependency-injection seam (never reads the network in tests)."""
-    global _client_override
-    _client_override = client
-
-
-def get_telegram_client() -> TelegramClient:
-    """Resolve the shared organization bot client (settings-backed)."""
-    if _client_override is not None:
-        return _client_override
+def build_client() -> TelegramClient:
+    """Factory used by the platform registry (settings-backed)."""
     from app.config.settings import get_settings
 
     settings = get_settings()
@@ -225,3 +221,17 @@ def get_telegram_client() -> TelegramClient:
         token=settings.telegram_bot_token,
         timeout=settings.telegram_request_timeout_seconds,
     )
+
+
+def set_telegram_client_override(client: TelegramClient | None) -> None:
+    """Test/dependency-injection seam (never reads the network in tests)."""
+    from app.infrastructure.platforms import base as _base
+
+    _base.set_platform_client_override("TELEGRAM", client)
+
+
+def get_telegram_client() -> TelegramClient:
+    """Resolve the shared organization bot client (settings-backed)."""
+    from app.infrastructure.platforms import base as _base
+
+    return _base.get_platform_client("TELEGRAM")

@@ -15,6 +15,7 @@ from app.domain.publication import (
     plan_update,
     publish_idempotency_key,
 )
+from app.infrastructure.platforms import bale
 from app.infrastructure.platforms import telegram as tg
 
 S = enums.PublicationStatus
@@ -57,6 +58,9 @@ def test_repost_never_mutates_the_old_publication():
     assert can_transition(S.PUBLISHED, S.DELETE_PENDING)
     assert can_transition(S.DELETE_PENDING, S.DELETING)
     assert can_transition(S.DELETING, S.REMOTE_DELETED)
+    # A NON-retryable delete failure (Bale's 48h limit, a rejected delete)
+    # is a final failure that keeps the remote id (tracked lingering).
+    assert can_transition(S.DELETING, S.FAILED_FINAL)
     assert not can_transition(S.REPOSTING, S.PUBLISHED) or True
     # a reposting publication can end failed/unknown (the NEW one)
     assert can_transition(S.REPOSTING, S.FAILED_RETRYABLE)
@@ -195,12 +199,35 @@ def test_retryable_codes():
 
 def test_capabilities_match_verified_telegram_limits():
     caps = tg.TELEGRAM_CAPABILITIES
+    assert caps.platform == "TELEGRAM"
     assert caps.text_max_length == 4096
-    assert caps.caption_max_length == 1024
+    assert caps.single_media_caption_max_length == 1024
+    assert caps.album_caption_max_length == 1024
     assert caps.media_group_max == 10
     assert caps.edit_text is True
     assert caps.edit_caption is True
     assert caps.delete is True
+    assert caps.inspect_remote is True
+    assert caps.caption_limit_for(0) == 4096
+    assert caps.caption_limit_for(1) == 1024
+    assert caps.caption_limit_for(10) == 1024
+
+
+def test_capabilities_match_verified_bale_limits():
+    caps = bale.BALE_CAPABILITIES
+    assert caps.platform == "BALE"
+    assert caps.text_max_length == 4096
+    assert caps.single_media_caption_max_length == 4096
+    assert caps.album_caption_max_length == 1024
+    assert caps.media_group_max == 10
+    assert caps.edit_text is True
+    assert caps.edit_caption is True
+    assert caps.delete is True
+    # Bale has no message-lookup method -> inspection unsupported.
+    assert caps.inspect_remote is False
+    assert caps.caption_limit_for(0) == 4096
+    assert caps.caption_limit_for(1) == 4096
+    assert caps.caption_limit_for(10) == 1024
 
 
 def test_telegram_error_carries_taxonomy_code():

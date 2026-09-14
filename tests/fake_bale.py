@@ -1,26 +1,34 @@
-"""In-memory fake Telegram client for Phase 5 tests.
+"""In-memory fake Bale client for Phase 6 tests.
 
-Implements the semantic TelegramClient surface over a scriptable remote:
-- remote messages live in ``remote[(chat_id, message_id)]``;
-- individual calls can be scripted to fail with a specific taxonomy error
-  (``fail_next``) or to always fail (``always_fail``);
-- verification flags simulate bot token validity, chat existence and
-  administrator status (the three-step verification);
-- every call is recorded in ``calls`` for assertions.
+Implements the semantic PlatformClient surface over a scriptable remote,
+mirroring FakeTelegramClient plus the two platform-specific Bale behaviours
+under test:
 
-Inject with ``app.infrastructure.platforms.telegram.set_telegram_client_override``.
+- **Markdown wire transform**: ``send_message``/``send_media_group`` store
+  the ESCAPED text exactly as it went over the wire (Bale always
+  markdown-parses, so the stored/returned text is the escaped form) — this
+  is what ``remote_text_matches`` must tolerate.
+- **48-hour delete limit**: every remote message records when it was sent
+  on a fake clock (``now_hours``); ``delete_message`` fails with
+  VALIDATION_ERROR for messages older than 48h (the real limit; the exact
+  API error code is measured at live certification).
+- **No message lookup**: ``get_message`` raises
+  PLATFORM_UNSUPPORTED_OPERATION, exactly like the real adapter.
+
+Inject with ``app.infrastructure.platforms.bale.set_bale_client_override``.
 """
 
 from __future__ import annotations
 
 from app.domain import enums
-from app.infrastructure.platforms.telegram import TelegramError
+from app.infrastructure.platforms import bale as balemod
+from app.infrastructure.platforms.bale import BaleError
 
 CANONICAL_CHAT_ID = "-1009876543210"
-BOT_ID = 777000111
+BOT_ID = 777000222
 
 
-class FakeTelegramClient:
+class FakeBaleClient:
     def __init__(
         self,
         *,
@@ -31,22 +39,19 @@ class FakeTelegramClient:
         self.token_ok = token_ok
         self.chat_exists = chat_exists
         self.is_admin = is_admin
-        #: (chat_id, message_id) -> {"text": str} or {"caption": str, "media": [...]}
+        #: Fake clock in hours; advance it to age messages past 48h.
+        self.now_hours: float = 0.0
+        #: (chat_id, message_id) -> {"text"/"caption", "media", "created_at"}
         self.remote: dict[tuple[str, int], dict] = {}
         self.next_id = 1
-        self.fail_next: tuple[str, TelegramError] | None = None
-        self.always_fail: tuple[str, TelegramError] | None = None
+        self.fail_next: tuple[str, BaleError] | None = None
+        self.always_fail: tuple[str, BaleError] | None = None
         self.calls: list[tuple[str, tuple, dict]] = []
         self._chat_ids: dict[str, str] = {}
 
     def chat_id_for(self, target: str) -> str:
-        """Deterministic, distinct canonical chat id per target.
-
-        The first connected target uses CANONICAL_CHAT_ID so single-target
-        tests can address the remote directly. Numeric chat ids are
-        already canonical and pass through unchanged (idempotent — real
-        Telegram's getChat(numeric id) returns the same id).
-        """
+        """Deterministic canonical chat id per target (idempotent on
+        numeric ids, like the real getChat)."""
         if target.lstrip("-").isdigit():
             return target
         if target not in self._chat_ids:
@@ -61,12 +66,12 @@ class FakeTelegramClient:
     def fail_next_call(
         self, method: str, code: enums.PublicationErrorCode, detail: str = "scripted"
     ) -> None:
-        self.fail_next = (method, TelegramError(code, detail))
+        self.fail_next = (method, BaleError(code, detail))
 
     def fail_always(
         self, method: str, code: enums.PublicationErrorCode, detail: str = "scripted"
     ) -> None:
-        self.always_fail = (method, TelegramError(code, detail))
+        self.always_fail = (method, BaleError(code, detail))
 
     def _check_fail(self, method: str) -> None:
         if self.fail_next is not None and self.fail_next[0] == method:
@@ -79,13 +84,13 @@ class FakeTelegramClient:
     def _record(self, method: str, *args: object, **kwargs: object) -> None:
         self.calls.append((method, args, dict(kwargs)))
 
-    # --- semantic surface (mirrors TelegramClient) ---
+    # --- semantic surface (mirrors PlatformClient) ---
 
     def get_me(self) -> dict:
         self._record("get_me")
         self._check_fail("get_me")
         if not self.token_ok:
-            raise TelegramError(
+            raise BaleError(
                 enums.PublicationErrorCode.AUTHENTICATION_ERROR, "bot token rejected"
             )
         return {"id": BOT_ID, "username": "shared_org_bot"}
@@ -94,7 +99,7 @@ class FakeTelegramClient:
         self._record("get_chat", target)
         self._check_fail("get_chat")
         if not self.chat_exists:
-            raise TelegramError(enums.PublicationErrorCode.NOT_FOUND, "chat not found")
+            raise BaleError(enums.PublicationErrorCode.NOT_FOUND, "chat not found")
         return {"id": self.chat_id_for(target), "title": f"chat {target}"}
 
     def get_chat_member(self, chat_id: str, user_id: int) -> dict:
@@ -108,7 +113,11 @@ class FakeTelegramClient:
         self._check_fail("send_message")
         mid = self.next_id
         self.next_id += 1
-        self.remote[(chat_id, mid)] = {"text": text}
+        # The wire text is what the adapter sent: escaped markdown.
+        self.remote[(chat_id, mid)] = {
+            "text": balemod.escape_markdown(text),
+            "created_at": self.now_hours,
+        }
         return mid
 
     def send_photo(self, chat_id: str, url: str, caption: str = "") -> int:
@@ -116,7 +125,11 @@ class FakeTelegramClient:
         self._check_fail("send_photo")
         mid = self.next_id
         self.next_id += 1
-        self.remote[(chat_id, mid)] = {"caption": caption, "media": [url]}
+        self.remote[(chat_id, mid)] = {
+            "caption": balemod.escape_markdown(caption) or None,
+            "media": [url],
+            "created_at": self.now_hours,
+        }
         return mid
 
     def send_media_group(self, chat_id: str, media_urls: list[str], caption: str = "") -> list[int]:
@@ -127,7 +140,11 @@ class FakeTelegramClient:
             mid = self.next_id
             self.next_id += 1
             ids.append(mid)
-        self.remote[(chat_id, ids[0])] = {"caption": caption, "media": list(media_urls)}
+        self.remote[(chat_id, ids[0])] = {
+            "caption": balemod.escape_markdown(caption),
+            "media": list(media_urls),
+            "created_at": self.now_hours,
+        }
         return ids
 
     def edit_message_text(self, chat_id: str, message_id: int, text: str) -> None:
@@ -135,8 +152,8 @@ class FakeTelegramClient:
         self._check_fail("edit_message_text")
         entry = self.remote.get((chat_id, message_id))
         if entry is None:
-            raise TelegramError(enums.PublicationErrorCode.NOT_FOUND, "message not found")
-        entry["text"] = text
+            raise BaleError(enums.PublicationErrorCode.NOT_FOUND, "message not found")
+        entry["text"] = balemod.escape_markdown(text)
         entry.pop("caption", None)
 
     def edit_message_caption(self, chat_id: str, message_id: int, caption: str) -> None:
@@ -144,25 +161,33 @@ class FakeTelegramClient:
         self._check_fail("edit_message_caption")
         entry = self.remote.get((chat_id, message_id))
         if entry is None:
-            raise TelegramError(enums.PublicationErrorCode.NOT_FOUND, "message not found")
-        entry["caption"] = caption
+            raise BaleError(enums.PublicationErrorCode.NOT_FOUND, "message not found")
+        entry["caption"] = balemod.escape_markdown(caption) or None
 
     def delete_message(self, chat_id: str, message_id: int) -> None:
         self._record("delete_message", chat_id, message_id)
         self._check_fail("delete_message")
         if (chat_id, message_id) not in self.remote:
-            raise TelegramError(enums.PublicationErrorCode.NOT_FOUND, "message not found")
+            raise BaleError(enums.PublicationErrorCode.NOT_FOUND, "message not found")
+        age = self.now_hours - self.remote[(chat_id, message_id)]["created_at"]
+        if age >= 48:
+            # Bale only allows deleting messages younger than 48h.
+            raise BaleError(
+                enums.PublicationErrorCode.VALIDATION_ERROR,
+                "message is older than 48 hours and cannot be deleted",
+            )
         del self.remote[(chat_id, message_id)]
 
     def get_message(self, chat_id: str, message_id: int) -> dict | None:
         self._record("get_message", chat_id, message_id)
-        self._check_fail("get_message")
-        entry = self.remote.get((chat_id, message_id))
-        if entry is None:
-            return None
-        return dict(entry)
+        # Bale has NO message-lookup method — the real adapter raises the
+        # same explicit error (never a silent fallback).
+        raise BaleError(
+            enums.PublicationErrorCode.PLATFORM_UNSUPPORTED_OPERATION,
+            "Bale has no message-lookup method (inspection unsupported)",
+        )
 
-    # --- test assertions helpers ---
+    # --- test assertion helpers ---
 
     def call_methods(self) -> list[str]:
         return [c[0] for c in self.calls]
