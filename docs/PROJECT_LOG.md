@@ -27,6 +27,26 @@
   reconciliation) per SOURCE_SYNC_DOMAIN_SPECIFICATION_V1; automatic-mode
   publication triggers land here (deferred from Phases 4/5 by design).
 
+## 2026-09-16 — Phase 8 started: safe source-row validation
+
+- Owner approved Phase 8 and confirmed that Sync policies must be flexible,
+  configurable and easy to change; automatic mode is approved; retry is
+  bounded at 3 attempts; final failure must notify Owner/Admin.
+- Empty spreadsheet rows are now treated as `BLANK` (not invalid products),
+  counted separately and excluded from identity/missing decisions.
+- Rows with missing required fields or invalid values remain visible in the
+  ImportRun row diagnostics with their exact locator (for example `row:17`).
+  When an invalid row still contains a trusted identity (external_id/SKU/
+  barcode), the matched product enters reversible `SOURCE_INVALID`; it cannot
+  be published until the customer corrects the source row. A corrected valid
+  row returns it to ACTIVE. Customer-owned media is unaffected.
+- The publication guard rejects SOURCE_INVALID products, preventing bad
+  source data from reaching Telegram/Bale.
+- Next implementation slice: durable SyncRun/coalescing, configurable
+  policies, worker retry/recovery, and Owner/Admin notification after the
+  third failed attempt. Tests will cover blank rows, invalid rows, exact
+  row diagnostics, deactivation/reactivation and publication blocking.
+
 ## 2026-09-15 — Phase 6 COMPLETE: Bale live CERTIFIED (certification run #6)
 
 ### Certification run #6 (owner, real bot, external image URL)

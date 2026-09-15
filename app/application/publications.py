@@ -111,6 +111,10 @@ def _require_publishable_product(db: Session, product: Product) -> None:
             "the product is under identity review; publication changes are "
             "blocked until the review is resolved"
         )
+    if product.lifecycle_state == enums.ProductLifecycle.SOURCE_INVALID.value:
+        raise ConflictError(
+            "the product has invalid source data; correct the source row before publishing"
+        )
     if product.lifecycle_state == enums.ProductLifecycle.ARCHIVED.value:
         raise ConflictError("archived products cannot be published")
 

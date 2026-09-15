@@ -81,6 +81,7 @@ def _new_counts() -> dict[str, int]:
         "duplicate": 0,
         "blocked": 0,
         "invalid": 0,
+        "blank": 0,
     }
 
 
@@ -391,8 +392,12 @@ def _upsert_product(
         )
         return product, None, ["PRODUCT_CREATED"]
 
-    # Reappearance reconnects automatically.
-    if product.lifecycle_state == enums.ProductLifecycle.MISSING_FROM_SOURCE.value:
+    # Reappearance or correction reconnects automatically. The source-invalid
+    # state is deliberately reversible: the corrected row is the evidence.
+    if product.lifecycle_state in (
+        enums.ProductLifecycle.MISSING_FROM_SOURCE.value,
+        enums.ProductLifecycle.SOURCE_INVALID.value,
+    ):
         product.lifecycle_state = enums.ProductLifecycle.ACTIVE.value
 
     changed_fields: dict = {}
@@ -666,10 +671,28 @@ def run_import(
         locator = f"row:{idx + 2}"  # header is row 1
         seen_locators.add(locator)
 
+        # Spreadsheet readers commonly preserve empty trailing rows. They are
+        # not invalid products and must not create review noise or affect
+        # missing-row inference.
+        if not any(str(value or "").strip() for value in row.values()):
+            counts["blank"] += 1
+            row_results.append(RowResult(locator=locator, outcome="BLANK"))
+            continue
+
         core, attrs, errors = extract_row(row, mapping)
         if errors:
             counts["invalid"] += 1
             row_errors.append({"locator": locator, "errors": errors})
+            # If identity data is still sufficient to locate an existing
+            # product, deactivate it until the customer fixes this exact row.
+            partial_core = dict(core)
+            if partial_core.get("external_id") or partial_core.get("sku") or partial_core.get("barcode"):
+                partial_core["_fingerprint"] = None
+                action, invalid_product, _ = _resolve_row_identity(
+                    db, business_id=business_id, core=partial_core
+                )
+                if action == "MATCHED" and invalid_product is not None:
+                    invalid_product.lifecycle_state = enums.ProductLifecycle.SOURCE_INVALID.value
             row_results.append(
                 RowResult(
                     locator=locator,
