@@ -1,5 +1,29 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-16 — Phase 8 architecture approved; implementation scope locked
+
+- Owner re-confirmed the documented workflow: read the contracts in `docs/`
+  before implementation; no guessed behavior.
+- Owner approved the Sync Job architecture: durable jobs, queue workers,
+  bounded retry/backoff, idempotency, per-Source concurrency guard,
+  manual/scheduled coalescing, crash recovery and final failure notification.
+- Existing owner decisions carried into implementation:
+  - policies must be configuration-driven and easy to change;
+  - automatic mode is approved;
+  - retry maximum is 3 attempts;
+  - after the third failure Owner/Admin must be notified;
+  - blank rows are `BLANK`, not invalid products;
+  - missing required mapped columns report exact row + column;
+  - identifiable invalid products become reversible `SOURCE_INVALID` and are
+    blocked from publication until corrected;
+  - incomplete/suspicious reads never trigger missing inference or destructive
+    actions.
+- This is an additive architecture change. Existing ImportRun history and
+  Product data remain durable; rollback is by stopping Sync workers and
+  reverting the additive migration/code path.
+- Next implementation slice: durable Sync Job model + migration, then pure
+  policy/concurrency tests before worker wiring.
+
 ## 2026-09-16 — Phase 7 DEFERRED (owner decision) + contract review committed
 
 - Owner decision (2026-09-16): **defer Eitaa/Rubika implementation** — first
