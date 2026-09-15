@@ -140,9 +140,18 @@ def extract_row(
             display = entry.get("display_name") or column
             if raw:
                 attrs[display] = raw
-    # Required validation: name.
-    if not core.get("name"):
-        errors.append("name is required but missing")
+    # Required validation comes from the active mapping, not a hard-coded
+    # field list. This keeps the pipeline extensible for business-specific
+    # required columns while preserving the default name requirement.
+    for entry in mapping.entries:
+        if not entry.get("required"):
+            continue
+        canonical = entry.get("canonical_field") or entry.get("column")
+        value = core.get(canonical) if entry.get("field_kind") == enums.FieldKind.CORE.value else attrs.get(entry.get("display_name") or entry.get("column"))
+        if value is None or (isinstance(value, str) and not value.strip()):
+            errors.append(
+                f"column '{entry.get('column', canonical)}': required value is missing"
+            )
     return core, attrs, errors
 
 
@@ -1098,6 +1107,10 @@ def preview_import(
     new_predicted = 0
     for idx, row in enumerate(read.rows):
         locator = f"row:{idx + 2}"
+        if not any(str(value or "").strip() for value in row.values()):
+            counts["blank"] += 1
+            rows_out.append({"locator": locator, "outcome": "BLANK"})
+            continue
         core, attrs, errors = extract_row(row, mapping)
         if errors:
             counts["invalid"] += 1

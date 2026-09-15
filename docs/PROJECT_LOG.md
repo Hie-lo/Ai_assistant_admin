@@ -42,6 +42,13 @@
   row returns it to ACTIVE. Customer-owned media is unaffected.
 - The publication guard rejects SOURCE_INVALID products, preventing bad
   source data from reaching Telegram/Bale.
+- Preview now reports blank rows as `BLANK` too (instead of showing them as
+  invalid), so the customer sees the same safe classification before applying
+  a Sync.
+- Required-field validation is driven by the active Mapping's `required`
+  flags, not only by the built-in `name` field. This allows future business
+  types to require additional columns; each error includes the source column
+  and exact row locator.
 - Next implementation slice: durable SyncRun/coalescing, configurable
   policies, worker retry/recovery, and Owner/Admin notification after the
   third failed attempt. Tests will cover blank rows, invalid rows, exact
