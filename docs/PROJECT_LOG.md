@@ -1,5 +1,17 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-16 — Phase 8 test gate 1 passed on owner server
+
+- Owner server evidence: migration `f0a1b2c3d4e5` is current.
+- Focused Sync tests: **12 passed**.
+- Import integration: **28 passed**; blank/invalid-row and required-column
+  behavior now passes.
+- Full suite: **all tests passed** with 2 expected skips.
+- Ruff: **all checks passed** for `app tests migrations scripts`.
+- Remaining output is deprecation/unknown-mark warnings only; no test failure.
+- Next: connect durable SyncJob lifecycle to worker execution, with a
+  focused integration test for database-backed claim/coalescing and retry.
+
 ## 2026-09-16 — Phase 8 architecture approved; implementation scope locked
 
 - Owner re-confirmed the documented workflow: read the contracts in `docs/`
