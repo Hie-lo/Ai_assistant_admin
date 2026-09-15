@@ -801,6 +801,36 @@ class ReviewCase(Base):
     )
 
 
+class Notification(Base):
+    """Durable, business-scoped in-app notification."""
+
+    __tablename__ = "notifications"
+
+    notification_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    recipient_user_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(
+        Enum(enums.NotificationKind, native_enum=False, validate_strings=True), nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        Enum(enums.NotificationStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.NotificationStatus.UNREAD.value,
+    )
+    title: Mapped[str] = mapped_column(String(180), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    correlation_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class SyncJob(Base):
     """Durable orchestration record for manual and scheduled source syncs.
 

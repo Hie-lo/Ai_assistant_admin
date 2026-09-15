@@ -183,6 +183,16 @@ class ImportRunStatus(str_enum):
     PREVIEW = "PREVIEW"
 
 
+class NotificationStatus(str_enum):
+    UNREAD = "UNREAD"
+    READ = "READ"
+
+
+class NotificationKind(str_enum):
+    SYNC_RETRY_EXHAUSTED = "SYNC_RETRY_EXHAUSTED"
+    SYNC_RECOVERY_REQUIRED = "SYNC_RECOVERY_REQUIRED"
+
+
 class SyncJobStatus(str_enum):
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"
