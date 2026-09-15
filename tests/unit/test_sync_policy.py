@@ -1,7 +1,6 @@
 from datetime import timedelta
 
 import pytest
-
 from app.domain.sync_policy import SyncPolicy
 
 

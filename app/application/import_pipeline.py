@@ -147,7 +147,10 @@ def extract_row(
         if not entry.get("required"):
             continue
         canonical = entry.get("canonical_field") or entry.get("column")
-        value = core.get(canonical) if entry.get("field_kind") == enums.FieldKind.CORE.value else attrs.get(entry.get("display_name") or entry.get("column"))
+        if entry.get("field_kind") == enums.FieldKind.CORE.value:
+            value = core.get(canonical)
+        else:
+            value = attrs.get(entry.get("display_name") or entry.get("column"))
         if value is None or (isinstance(value, str) and not value.strip()):
             column = entry.get("column", canonical)
             if canonical == "name":
@@ -699,7 +702,11 @@ def run_import(
             # If identity data is still sufficient to locate an existing
             # product, deactivate it until the customer fixes this exact row.
             partial_core = dict(core)
-            if partial_core.get("external_id") or partial_core.get("sku") or partial_core.get("barcode"):
+            if (
+                partial_core.get("external_id")
+                or partial_core.get("sku")
+                or partial_core.get("barcode")
+            ):
                 partial_core["_fingerprint"] = None
                 action, invalid_product, _ = _resolve_row_identity(
                     db, business_id=business_id, core=partial_core

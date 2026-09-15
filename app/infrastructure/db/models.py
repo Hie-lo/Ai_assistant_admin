@@ -818,7 +818,10 @@ class SyncJob(Base):
         sa.Uuid, ForeignKey("sources.source_id", ondelete="CASCADE"), nullable=False, index=True
     )
     business_id: Mapped[uuid.UUID] = mapped_column(
-        sa.Uuid, ForeignKey("businesses.business_id", ondelete="CASCADE"), nullable=False, index=True
+        sa.Uuid,
+        ForeignKey("businesses.business_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     mapping_version_id: Mapped[uuid.UUID | None] = mapped_column(
         sa.Uuid, ForeignKey("source_mappings.mapping_id")
@@ -848,7 +851,10 @@ class SyncJob(Base):
         DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now()
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.now(),
+        onupdate=sa.func.now(),
     )
 
 
