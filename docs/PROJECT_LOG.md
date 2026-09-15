@@ -1,5 +1,17 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-16 — Phase 8 scheduling boundary approved and enforced
+
+- Owner selected Option 1: Excel/XLSX is Manual Sync only; Google Sheets may
+  run Manual, Scheduled and Automatic Sync.
+- Reason: the V1 Excel upload is not persisted as a durable source artifact,
+  while Google Sheets can be read again by a worker through its configured
+  source reference.
+- Queue protection added: scheduled/automatic Excel requests fail closed with
+  an explicit validation message before Job creation.
+- Focused regression test added for this boundary.
+
+
 ## 2026-09-16 — Phase 8 test gate 1 passed on owner server
 
 - Owner server evidence: migration `f0a1b2c3d4e5` is current.

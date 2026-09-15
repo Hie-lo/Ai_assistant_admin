@@ -1,7 +1,9 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from app.application.sync_jobs import begin, finish, retry_or_exhaust
+import pytest
+
+from app.application.sync_jobs import begin, enqueue, finish, retry_or_exhaust
 from app.domain import enums
 from app.domain.sync_policy import SyncPolicy
 
@@ -19,6 +21,24 @@ def _job(*, status=enums.SyncJobStatus.QUEUED.value, attempts=0):
         counts={},
         row_errors=[],
     )
+
+
+def test_scheduled_excel_sync_is_rejected_before_queueing():
+    source = SimpleNamespace(
+        source_id="source-1",
+        business_id="business-1",
+        kind=enums.SourceKind.EXCEL_UPLOAD.value,
+    )
+
+    with pytest.raises(ValueError, match="only for Google Sheets"):
+        enqueue(
+            None,
+            source=source,
+            mapping=None,
+            trigger=enums.SyncTrigger.SCHEDULED,
+            requested_by=None,
+            correlation_id="corr-1",
+        )
 
 
 def test_begin_claims_queued_job_once_and_increments_attempt():

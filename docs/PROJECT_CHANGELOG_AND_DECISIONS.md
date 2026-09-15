@@ -1,6 +1,19 @@
 # Project Changelog & Architectural Decisions
 # دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-16 — Phase 8 source scheduling decision approved
+
+Owner approved the V1 source scheduling boundary:
+- Excel/XLSX remains Manual Sync only because V1 does not persist the uploaded
+  file as a durable source artifact.
+- Google Sheets supports Manual, Scheduled and Automatic Sync because the
+  configured external spreadsheet can be read again by a worker.
+- A scheduled/automatic request for an Excel Source fails closed with a clear
+  validation message before a queue Job is created; it must never become an
+  opaque worker failure.
+- This keeps the initial deployment resource-efficient and avoids silently
+  introducing customer-file retention, storage, encryption and backup policy.
+
 ## 2026-09-15 — Phase 6: Bale platform decisions approved + adapter delivered
 Owner approved (5 structured questions, 2026-09-15):
 1. BALE bot model: ORGANIZATIONAL SHARED BOT — the same model as

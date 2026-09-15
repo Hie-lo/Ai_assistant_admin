@@ -57,6 +57,13 @@ def enqueue(
     the unique idempotency key is the durable backstop.
     """
     policy = policy or SyncPolicy()
+    if (
+        trigger != enums.SyncTrigger.MANUAL
+        and source.kind == enums.SourceKind.EXCEL_UPLOAD.value
+    ):
+        raise ValueError(
+            "scheduled and automatic sync are supported only for Google Sheets sources"
+        )
     active = _active_job(db, source.source_id)
     if active is not None:
         triggers = list(active.coalesced_triggers or [])
