@@ -297,6 +297,11 @@ def build_client():
     from app.config.settings import get_settings
 
     settings = get_settings()
+    if not settings.bale_bot_token:
+        raise BaleError(
+            enums.PublicationErrorCode.AUTHENTICATION_ERROR,
+            "Bale bot token is not configured",
+        )
     return HttpBaleClient(
         base_url=settings.bale_api_base_url,
         token=settings.bale_bot_token,

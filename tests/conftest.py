@@ -30,6 +30,9 @@ from sqlalchemy.pool import StaticPool
 def _settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Give every test a deterministic internal token + fresh settings cache."""
     monkeypatch.setenv("INTERNAL_API_TOKEN", "test-internal-token")
+    # Tests must never depend on deployment credentials/provider selection.
+    monkeypatch.setenv("AI_PROVIDER", "template")
+    monkeypatch.setenv("BALE_BOT_TOKEN", "")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
