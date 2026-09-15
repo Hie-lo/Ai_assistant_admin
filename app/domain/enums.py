@@ -183,6 +183,17 @@ class ImportRunStatus(str_enum):
     PREVIEW = "PREVIEW"
 
 
+class SyncJobStatus(str_enum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    RETRY_WAITING = "RETRY_WAITING"
+    SUCCEEDED = "SUCCEEDED"
+    SUCCEEDED_WITH_ERRORS = "SUCCEEDED_WITH_ERRORS"
+    FAILED_RETRY_EXHAUSTED = "FAILED_RETRY_EXHAUSTED"
+    RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
+    CANCELLED = "CANCELLED"
+
+
 class RowOutcome(str_enum):
     UNCHANGED = "UNCHANGED"
     VALID = "VALID"
@@ -266,6 +277,8 @@ class FieldType(str_enum):
 
 class SyncTrigger(str_enum):
     MANUAL = "MANUAL"
+    SCHEDULED = "SCHEDULED"
+    EVENT_ASSISTED = "EVENT_ASSISTED"
 
 
 # --- Content / AI (Phase 4) ---

@@ -801,6 +801,57 @@ class ReviewCase(Base):
     )
 
 
+class SyncJob(Base):
+    """Durable orchestration record for manual and scheduled source syncs.
+
+    Product mutation remains in the existing import pipeline; this record
+    owns queue state, retry/recovery evidence and coalesced triggers.
+    """
+
+    __tablename__ = "sync_jobs"
+    __table_args__ = (
+        UniqueConstraint("source_id", "idempotency_key", name="uq_sync_job_source_idempotency"),
+    )
+
+    sync_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("sources.source_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, ForeignKey("businesses.business_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    mapping_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid, ForeignKey("source_mappings.mapping_id")
+    )
+    status: Mapped[str] = mapped_column(
+        Enum(enums.SyncJobStatus, native_enum=False, validate_strings=True),
+        nullable=False,
+        default=enums.SyncJobStatus.QUEUED.value,
+    )
+    trigger: Mapped[str] = mapped_column(
+        Enum(enums.SyncTrigger, native_enum=False, validate_strings=True), nullable=False
+    )
+    coalesced_triggers: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, ForeignKey("users.user_id"))
+    idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    correlation_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    counts: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    row_errors: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    failure_summary: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now(), onupdate=sa.func.now()
+    )
+
+
 class ImportRun(Base):
     """One manual import/sync execution (spec: sync transaction model)."""
 
