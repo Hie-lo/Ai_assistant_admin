@@ -149,9 +149,13 @@ def extract_row(
         canonical = entry.get("canonical_field") or entry.get("column")
         value = core.get(canonical) if entry.get("field_kind") == enums.FieldKind.CORE.value else attrs.get(entry.get("display_name") or entry.get("column"))
         if value is None or (isinstance(value, str) and not value.strip()):
-            errors.append(
-                f"column '{entry.get('column', canonical)}': required value is missing"
-            )
+            column = entry.get("column", canonical)
+            if canonical == "name":
+                # Preserve the established API/test wording while adding the
+                # exact source column for customer correction.
+                errors.append(f"name is required but missing (column '{column}')")
+            else:
+                errors.append(f"column '{column}': required value is missing")
     return core, attrs, errors
 
 
