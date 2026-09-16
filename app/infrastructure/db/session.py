@@ -28,9 +28,16 @@ def create_engine_from_url(url: str, *, echo: bool = False) -> Engine:
     base class and must never be passed as ``poolclass`` (connections raise
     ``NotImplementedError``).
     """
+    from app.config.settings import get_settings
+
+    settings = get_settings()
     kwargs: dict[str, object] = {"echo": echo, "pool_pre_ping": True}
     if not url.startswith("sqlite"):
         kwargs["poolclass"] = QueuePool
+        kwargs["pool_size"] = settings.db_pool_size
+        kwargs["max_overflow"] = settings.db_max_overflow
+        kwargs["pool_recycle"] = 300
+        kwargs["pool_timeout"] = 30
     return create_engine(url, **kwargs)
 
 
