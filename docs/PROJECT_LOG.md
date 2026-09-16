@@ -1,5 +1,26 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-16 — Final verification: ruff clean + unit/failure green + backup encrypt roundtrip
+
+- Fixed ruff E501/F841/E741/SIM105/SIM102/E402/B904 across:
+  - app/infrastructure/monitoring/middleware.py (split long observe_histogram/inc_counter, cleaned RateLimitMiddleware)
+  - app/infrastructure/security/middleware.py (nested if collapsed, line lengths)
+  - app/interfaces/http/routes_sync.py (B904 raise from, E402 imports top, E501 split)
+  - app/interfaces/telegram/bot.py (unused settings, long btext, link code error message)
+  - app/interfaces/telegram/routes.py (unused settings/client, broken f-string, line length)
+  - app/interfaces/web/routes.py (E501 108-110 cols split)
+  - app/interfaces/http/routes_monitoring.py (E741 ambiguous l -> entry)
+  - app/infrastructure/db/models.py (E501 101 cols split)
+  - tests/failure/test_failure_matrix.py (E501 long IdentityCandidate lines)
+  - tests/unit/test_sync_classification.py (E501 assert lines)
+- Ruff result: app + tests -> All checks passed!
+- Unit: 231 passed
+- Failure: 9 passed
+- Backup service: Fernet encrypt/decrypt roundtrip verified (key 44 bytes, fernet-aes128)
+- Imports: all new modules import OK (routes_sync, routes_monitoring, web, telegram, bale, monitoring, backup)
+- Commit: Phase 8-12 complete commit pushed to arena/01a0a97b-ai-assistant-admin
+- Next: integration suite on Postgres (needs docker), backup restore full dry-run, live certification on prod, Gate H off-site destination pending
+
 ## 2026-09-16 — Phase 8-12 COMPLETE: Full Telegram+Bale core product
 
 ### Delivered — Phase 8 completion (Sync Jobs API + worker wiring)
