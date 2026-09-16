@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}پیش‌نمایش Import — {{ source.name }}{% endblock %}
+{% block content %}
+<div class="hero-section">
+    <h1>🔍 پیش‌نمایش Import — {{ source.name }}</h1>
+    <p>این یک اجرای آزمایشی (dry-run) است. هیچ تغییری در محصولات ذخیره نمی‌شود. نتایج را بررسی کنید، سپس Import واقعی را اجرا کنید.</p>
+    <div class="hero-stats">
+        <div class="hero-stat"><strong>{{ preview.headers|length if preview.headers else 0 }}</strong><span>ستون</span></div>
+        <div class="hero-stat"><strong>{{ preview.rows|length if preview.rows else 0 }}</strong><span>ردیف پیش‌نمایش</span></div>
+        <div class="hero-stat"><strong>{{ source.kind }}</strong><span>نوع منبع</span></div>
+    </div>
+</div>
+
+<div class="steps">
+    <div class="step done"><span class="step-number">1</span><span class="step-title">کشف</span><span class="step-desc">ساختار</span></div>
+    <div class="step done"><span class="step-number">2</span><span class="step-title">نگاشت</span><span class="step-desc">فعال</span></div>
+    <div class="step done"><span class="step-number">3</span><span class="step-title">اعتبارسنجی</span><span class="step-desc">سطرها</span></div>
+    <div class="step active"><span class="step-number">4</span><span class="step-title">پیش‌نمایش</span><span class="step-desc">Diff</span></div>
+    <div class="step"><span class="step-number">5</span><span class="step-title">Import</span><span class="step-desc">نهایی</span></div>
+</div>
+
+{% if preview.error %}
+<div class="flash flash-error">⚠️ خطا: {{ preview.error }}</div>
+{% if not preview.complete %}
+<div class="card" style="border-right:4px solid var(--warning);">
+    <h3>🛡️ محافظت از داده‌ها فعال شد</h3>
+    <p class="muted" style="margin-top:0.5rem;">خواندن منبع ناقص بوده، بنابراین سیستم از استنتاج ردیف‌های گمشده جلوگیری کرده است (مطابق spec بخش 13). لطفاً اتصال منبع را بررسی کنید.</p>
+</div>
+{% endif %}
+{% endif %}
+
+{% if preview.counts %}
+<div class="import-stats-grid">
+    <div class="import-stat-card"><span class="value">{{ preview.counts.read or 0 }}</span><span class="label">خوانده شده</span></div>
+    <div class="import-stat-card"><span class="value">{{ preview.counts.valid or 0 }}</span><span class="label">معتبر</span></div>
+    <div class="import-stat-card new"><span class="value">{{ preview.counts.new or 0 }}</span><span class="label">جدید</span></div>
+    <div class="import-stat-card changed"><span class="value">{{ preview.counts.changed or 0 }}</span><span class="label">تغییر یافته</span></div>
+    <div class="import-stat-card"><span class="value">{{ preview.counts.unchanged or 0 }}</span><span class="label">بدون تغییر</span></div>
+    <div class="import-stat-card invalid"><span class="value">{{ preview.counts.invalid or 0 }}</span><span class="label">نامعتبر</span></div>
+    <div class="import-stat-card ambiguous"><span class="value">{{ preview.counts.ambiguous or 0 }}</span><span class="label">مبهم</span></div>
+    <div class="import-stat-card"><span class="value">{{ preview.counts.blank or 0 }}</span><span class="label">خالی</span></div>
+</div>
+{% endif %}
+
+<div class="grid-2">
+    <div class="card">
+        <h3 style="margin-bottom:0.75rem;">📊 خلاصه</h3>
+        {% if preview.complete %}
+        <p><span class="badge badge-ACTIVE">COMPLETE</span> خواندن منبع کامل بود — استنتاج گمشده مجاز است.</p>
+        {% else %}
+        <p><span class="badge badge-REVIEW_REQUIRED">INCOMPLETE</span> خواندن ناقص — گمشده استنتاج نمی‌شود.</p>
+        {% endif %}
+        <div style="margin-top:1rem;">
+            <strong>هدرها:</strong>
+            <div style="display:flex; flex-wrap:wrap; gap:0.4rem; margin-top:0.5rem;">
+                {% for h in preview.headers %}
+                <span class="badge badge-ARCHIVED">{{ h }}</span>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <div class="card">
+        <h3 style="margin-bottom:0.75rem;">🚀 اقدام بعدی</h3>
+        <p class="muted" style="margin-bottom:1rem;">اگر پیش‌نمایش درست به نظر می‌رسد، Import واقعی را اجرا کنید. در Import واقعی، محصولات ایجاد/به‌روزرسانی می‌شوند، کیس‌های بازبینی ساخته می‌شوند و لاگ حسابرسی ثبت می‌گردد.</p>
+        <form method="post" action="/web/businesses/{{ business.business_id }}/sources/{{ source.source_id }}/import" enctype="multipart/form-data" style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:end;">
+            {% if source.kind == 'EXCEL_UPLOAD' %}
+            <div class="form-group" style="flex:1; min-width:200px; margin-bottom:0;">
+                <label>فایل Excel برای Import نهایی</label>
+                <input type="file" name="file" accept=".xlsx,.xls" required>
+            </div>
+            {% endif %}
+            <button type="submit" class="btn btn-gradient">✅ اجرای Import نهایی</button>
+        </form>
+    </div>
+</div>
+
+{% if preview.rows %}
+<div class="card" style="margin-top:1.5rem; padding:0; overflow:hidden;">
+    <div style="padding:1.25rem 1.5rem; background:#f8fafc; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+        <h3>🧾 ردیف‌ها ({{ preview.rows|length }} مورد اول)</h3>
+        <span class="muted" style="font-size:0.85rem;">Diff: NEW / CHANGED / INVALID / AMBIGUOUS</span>
+    </div>
+    <div class="diff-body">
+        {% for row in preview.rows[:100] %}
+        <div class="diff-row outcome-{{ row.outcome }}">
+            <span class="badge badge-{{ row.outcome }}">{{ row.outcome }}</span>
+            <div>
+                <strong>{{ row.locator }}</strong>
+                {% if row.product_id %}<span class="muted">• {{ row.product_id[:8] }}…</span>{% endif %}
+                {% if row.errors %}<div style="color:var(--error); font-size:0.85rem; margin-top:0.25rem;">{{ row.errors|join(', ') }}</div>{% endif %}
+                {% if row.candidate_count %}<div class="muted" style="font-size:0.8rem;">{{ row.candidate_count }} کاندید مبهم</div>{% endif %}
+                {% if row.changes %}<div style="font-size:0.85rem; margin-top:0.25rem;">
+                    {% for f, v in row.changes.items() %}
+                    <span class="badge badge-ARCHIVED" style="margin:2px;">{{ f }}: {{ v.old }} → {{ v.new }}</span>
+                    {% endfor %}
+                </div>{% endif %}
+            </div>
+            <div style="text-align:left;">
+                {% if row.risk %}<span class="badge badge-REVIEW_REQUIRED">{{ row.risk }}</span>{% endif %}
+            </div>
+        </div>
+        {% endfor %}
+        {% if preview.rows|length > 100 %}
+        <div style="padding:1rem; text-align:center;" class="muted">… و {{ preview.rows|length - 100 }} ردیف دیگر (در لاگ کامل ImportRun موجود است)</div>
+        {% endif %}
+    </div>
+</div>
+{% else %}
+<div class="empty-state" style="margin-top:1.5rem;">
+    <div class="icon">📭</div>
+    <h3>ردیفی برای نمایش نیست</h3>
+    <p>منبع خالی است یا خطای خواندن وجود دارد.</p>
+</div>
+{% endif %}
+
+<div style="margin-top:2rem; display:flex; gap:0.75rem; flex-wrap:wrap;">
+    <a href="/web/businesses/{{ business.business_id }}/sources/{{ source.source_id }}" class="btn btn-ghost">← بازگشت به منبع</a>
+    <a href="/web/businesses/{{ business.business_id }}/sources" class="btn btn-outline">لیست منابع</a>
+    <a href="/web/businesses/{{ business.business_id }}/products" class="btn btn-outline">محصولات</a>
+</div>
+{% endblock %}

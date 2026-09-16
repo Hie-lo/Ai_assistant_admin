@@ -16,12 +16,14 @@ from sqlalchemy.orm import Session
 from app import __version__
 from app.application import auth as auth_svc
 from app.application import business as biz_svc
+from app.application import mapping as mapping_svc
 from app.application import products as products_svc
 from app.application import sources as sources_svc
 from app.config.settings import get_settings
 from app.domain import enums
 from app.infrastructure.db import models
 from app.infrastructure.db.session import get_session_factory
+from app.infrastructure.sources import read_source
 from app.interfaces.http.deps import SESSION_COOKIE
 
 templates_dir = Path(__file__).parent.parent.parent.parent / "templates"
@@ -546,6 +548,490 @@ def source_detail(
             "source": source,
             "mappings": mappings,
             "import_runs": import_runs,
+            "version": __version__,
+        },
+    )
+
+
+@router.post(
+    "/businesses/{business_id}/sources/{source_id}/mapping/suggest",
+    response_class=HTMLResponse,
+)
+async def source_mapping_suggest(
+    request: Request,
+    business_id: uuid.UUID,
+    source_id: uuid.UUID,
+    db: DbDep,
+    file: Annotated[UploadFile | None, File()] = None,
+):
+    """Suggest mapping: read headers from source, heuristic suggestion, render editor.
+
+    Flow per SOURCE_SYNC spec sections 5-7:
+    discovery -> suggestion -> correction -> validation -> preview -> activate.
+    """
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
+
+    try:
+        source = db.scalar(
+            select(models.Source).where(
+                models.Source.source_id == source_id,
+                models.Source.business_id == business_id,
+            )
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {
+                "current_user": user,
+                "error": f"DB error: {exc}",
+                "version": __version__,
+            },
+            status_code=500,
+        )
+    if not source:
+        return HTMLResponse("Source not found", status_code=404)
+
+    file_bytes = None
+    if file is not None:
+        file_bytes = await file.read()
+        if len(file_bytes) == 0:
+            file_bytes = None
+
+    # Read source headers
+    try:
+        src_read = read_source(source, file_bytes=file_bytes)
+    except Exception as exc:
+        src_read = None
+        read_error = str(exc)[:300]
+    else:
+        read_error = src_read.error if src_read and src_read.error else None
+
+    if src_read is None or (not src_read.headers and not src_read.complete):
+        # Render source detail with error
+        try:
+            mappings = db.scalars(
+                select(models.SourceMapping)
+                .where(models.SourceMapping.source_id == source_id)
+                .order_by(models.SourceMapping.created_at.desc())
+                .limit(20)
+            ).all()
+        except Exception:
+            mappings = []
+            with contextlib.suppress(Exception):
+                db.rollback()
+        try:
+            import_runs = db.scalars(
+                select(models.ImportRun)
+                .where(models.ImportRun.source_id == source_id)
+                .order_by(models.ImportRun.created_at.desc())
+                .limit(20)
+            ).all()
+        except Exception:
+            import_runs = []
+            with contextlib.suppress(Exception):
+                db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "source_detail.html",
+            {
+                "current_user": user,
+                "business": business,
+                "source": source,
+                "mappings": mappings,
+                "import_runs": import_runs,
+                "error": f"خواندن منبع ناموفق: {read_error or 'headers خالی'} — برای Excel فایل را آپلود کنید، برای Google Sheets دسترسی و credentials را بررسی کنید.",
+                "version": __version__,
+            },
+            status_code=400,
+        )
+
+    suggested_entries = mapping_svc.suggest_entries(src_read.headers)
+    # If no suggestion matched, still create CUSTOM entries for all headers
+    suggested_records = mapping_svc.entries_to_records(suggested_entries)
+
+    return templates.TemplateResponse(
+        request,
+        "mapping_editor.html",
+        {
+            "current_user": user,
+            "business": business,
+            "source": source,
+            "headers": src_read.headers,
+            "suggested": suggested_records,
+            "complete": src_read.complete,
+            "read_error": read_error,
+            "version": __version__,
+        },
+    )
+
+
+@router.post(
+    "/businesses/{business_id}/sources/{source_id}/mapping",
+    response_class=HTMLResponse,
+)
+async def source_mapping_create(
+    request: Request,
+    business_id: uuid.UUID,
+    source_id: uuid.UUID,
+    db: DbDep,
+):
+    """Create a new mapping version from edited suggestions (DRAFT).
+
+    Accepts entries_json hidden field containing list[dict] with:
+    column, canonical_field, field_kind, field_type, display_name, required, etc.
+    """
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
+
+    try:
+        source = db.scalar(
+            select(models.Source).where(
+                models.Source.source_id == source_id,
+                models.Source.business_id == business_id,
+            )
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {
+                "current_user": user,
+                "error": f"DB error: {exc}",
+                "version": __version__,
+            },
+            status_code=500,
+        )
+    if not source:
+        return HTMLResponse("Source not found", status_code=404)
+
+    form = await request.form()
+    entries_json = form.get("entries_json") or "[]"
+    import json
+
+    try:
+        entries = json.loads(entries_json)
+    except Exception as exc:
+        return templates.TemplateResponse(
+            request,
+            "mapping_editor.html",
+            {
+                "current_user": user,
+                "business": business,
+                "source": source,
+                "headers": [],
+                "suggested": [],
+                "error": f"فرمت نگاشت نامعتبر: {exc}",
+                "version": __version__,
+            },
+            status_code=400,
+        )
+
+    # Basic validation: must have at least one CORE name
+    if not isinstance(entries, list) or len(entries) == 0:
+        return templates.TemplateResponse(
+            request,
+            "mapping_editor.html",
+            {
+                "current_user": user,
+                "business": business,
+                "source": source,
+                "headers": [e.get("column", "") for e in entries] if isinstance(entries, list) else [],
+                "suggested": entries if isinstance(entries, list) else [],
+                "error": "نگاشت خالی است — حداقل یک ستون را نگاشت کنید.",
+                "version": __version__,
+            },
+            status_code=400,
+        )
+
+    has_name = any(
+        (e.get("canonical_field") == "name" and e.get("field_kind") == "CORE")
+        for e in entries
+    )
+    if not has_name:
+        return templates.TemplateResponse(
+            request,
+            "mapping_editor.html",
+            {
+                "current_user": user,
+                "business": business,
+                "source": source,
+                "headers": [e.get("column", "") for e in entries],
+                "suggested": entries,
+                "error": "حداقل یک ستون باید به فیلد name (نام محصول) نگاشت شود.",
+                "version": __version__,
+            },
+            status_code=400,
+        )
+
+    # Deduplicate canonical fields: keep first occurrence, turn duplicates into CUSTOM
+    seen = set()
+    cleaned = []
+    for e in entries:
+        col = (e.get("column") or "").strip()
+        if not col:
+            continue
+        canon = (e.get("canonical_field") or "").strip() or None
+        kind = (e.get("field_kind") or "CUSTOM").strip()
+        if not canon:
+            kind = "CUSTOM"
+        if canon and canon in seen:
+            # duplicate -> CUSTOM
+            kind = "CUSTOM"
+            canon = None
+        if canon:
+            seen.add(canon)
+        cleaned.append(
+            {
+                "column": col,
+                "canonical_field": canon,
+                "field_kind": kind,
+                "field_type": e.get("field_type") or "STRING",
+                "display_name": (e.get("display_name") or col).strip(),
+                "required": bool(e.get("required")),
+                "template_exposed": bool(e.get("template_exposed", False)),
+                "confidence": float(e.get("confidence") or 0.9),
+                "evidence": e.get("evidence") or "manual correction",
+            }
+        )
+
+    try:
+        mapping = mapping_svc.create_mapping_version(
+            db, source=source, entries=cleaned, actor_id=user.user_id
+        )
+        db.commit()
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "mapping_editor.html",
+            {
+                "current_user": user,
+                "business": business,
+                "source": source,
+                "headers": [e.get("column", "") for e in cleaned],
+                "suggested": cleaned,
+                "error": f"ذخیره نگاشت ناموفق: {exc}",
+                "version": __version__,
+            },
+            status_code=400,
+        )
+
+    # After creation, redirect to source detail where user can activate and preview
+    return RedirectResponse(
+        url=f"/web/businesses/{business_id}/sources/{source_id}",
+        status_code=302,
+    )
+
+
+@router.post(
+    "/businesses/{business_id}/sources/{source_id}/mappings/{mapping_id}/activate",
+    response_class=HTMLResponse,
+)
+def source_mapping_activate(
+    request: Request,
+    business_id: uuid.UUID,
+    source_id: uuid.UUID,
+    mapping_id: uuid.UUID,
+    db: DbDep,
+):
+    """Activate a DRAFT mapping version -> ACTIVE, supersede old active."""
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
+
+    try:
+        source = db.scalar(
+            select(models.Source).where(
+                models.Source.source_id == source_id,
+                models.Source.business_id == business_id,
+            )
+        )
+        mapping = db.scalar(
+            select(models.SourceMapping).where(
+                models.SourceMapping.mapping_id == mapping_id,
+                models.SourceMapping.source_id == source_id,
+            )
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {
+                "current_user": user,
+                "error": f"DB error: {exc}",
+                "version": __version__,
+            },
+            status_code=500,
+        )
+
+    if not source or not mapping:
+        return HTMLResponse("Mapping or Source not found", status_code=404)
+
+    try:
+        mapping_svc.activate_mapping(
+            db, source=source, mapping=mapping, actor_id=user.user_id
+        )
+        db.commit()
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        # Render source detail with error
+        try:
+            mappings = db.scalars(
+                select(models.SourceMapping)
+                .where(models.SourceMapping.source_id == source_id)
+                .order_by(models.SourceMapping.created_at.desc())
+                .limit(20)
+            ).all()
+        except Exception:
+            mappings = []
+            with contextlib.suppress(Exception):
+                db.rollback()
+        try:
+            import_runs = db.scalars(
+                select(models.ImportRun)
+                .where(models.ImportRun.source_id == source_id)
+                .order_by(models.ImportRun.created_at.desc())
+                .limit(20)
+            ).all()
+        except Exception:
+            import_runs = []
+            with contextlib.suppress(Exception):
+                db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "source_detail.html",
+            {
+                "current_user": user,
+                "business": business,
+                "source": source,
+                "mappings": mappings,
+                "import_runs": import_runs,
+                "error": f"فعال‌سازی نگاشت ناموفق: {exc}",
+                "version": __version__,
+            },
+            status_code=400,
+        )
+
+    return RedirectResponse(
+        url=f"/web/businesses/{business_id}/sources/{source_id}",
+        status_code=302,
+    )
+
+
+@router.post(
+    "/businesses/{business_id}/sources/{source_id}/preview",
+    response_class=HTMLResponse,
+)
+async def source_preview(
+    request: Request,
+    business_id: uuid.UUID,
+    source_id: uuid.UUID,
+    db: DbDep,
+    file: Annotated[UploadFile | None, File()] = None,
+):
+    """Dry-run preview: same extraction/validation/identity logic, zero writes.
+
+    Renders preview.html with counts and row-level diff.
+    """
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
+
+    try:
+        source = db.scalar(
+            select(models.Source).where(
+                models.Source.source_id == source_id,
+                models.Source.business_id == business_id,
+            )
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {
+                "current_user": user,
+                "error": f"DB error: {exc}",
+                "version": __version__,
+            },
+            status_code=500,
+        )
+    if not source:
+        return HTMLResponse("Source not found", status_code=404)
+
+    file_bytes = None
+    if file is not None:
+        file_bytes = await file.read()
+
+    try:
+        from app.application import import_pipeline
+        from app.application.audit import set_correlation_id
+
+        corr = getattr(request.state, "correlation_id", uuid.uuid4().hex)
+        set_correlation_id(corr)
+
+        preview = import_pipeline.preview_import(
+            db,
+            source=source,
+            business_id=business.business_id,
+            file_bytes=file_bytes,
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        preview = {
+            "error": str(exc)[:500],
+            "complete": False,
+            "headers": [],
+            "rows": [],
+            "counts": {},
+        }
+
+    return templates.TemplateResponse(
+        request,
+        "preview.html",
+        {
+            "current_user": user,
+            "business": business,
+            "source": source,
+            "preview": preview,
             "version": __version__,
         },
     )
