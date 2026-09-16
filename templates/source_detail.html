@@ -5,11 +5,14 @@
     <div style="display:flex; justify-content:space-between; align-items:start; flex-wrap:wrap; gap:1rem; position:relative;">
         <div>
             <h1>📦 {{ source.name }}</h1>
-            <p style="margin-top:0.5rem; opacity:0.9;">{{ business.business_name }} • نوع: {{ source.kind }} • وضعیت: {{ source.status }} • آخرین همگام‌سازی: {{ source.last_sync_at or '—' }}</p>
-            <div style="display:flex; gap:0.5rem; margin-top:1rem; flex-wrap:wrap;">
-                <span class="badge" style="background:rgba(255,255,255,0.2); color:white; border:1px solid rgba(255,255,255,0.3);">{{ source.kind }}</span>
-                <span class="badge" style="background:rgba(255,255,255,0.2); color:white; border:1px solid rgba(255,255,255,0.3);">{{ source.status }}</span>
-                {% if source.external_ref %}<span class="badge" style="background:rgba(255,255,255,0.2); color:white; border:1px solid rgba(255,255,255,0.3);">{{ source.external_ref[:30] }}…</span>{% endif %}
+            <p style="margin-top:0.5rem; opacity:0.9;">
+                {{ business.business_name }} • {{ source.kind }} • 
+                {% if active_mapping %}<span style="background:rgba(255,255,255,0.25); padding:0.2rem 0.6rem; border-radius:999px;">✅ آماده Import</span>
+                {% else %}<span style="background:rgba(255,255,255,0.25); padding:0.2rem 0.6rem; border-radius:999px;">⏳ نیاز به راه‌اندازی</span>{% endif %}
+            </p>
+            <div style="display:flex; gap:0.5rem; margin-top:0.8rem; flex-wrap:wrap; font-size:0.85rem; opacity:0.9;">
+                <span>🔗 {{ source.external_ref[:50] if source.external_ref else '—' }}{% if source.external_ref and source.external_ref|length>50 %}…{% endif %}</span>
+                {% if source.sheet_name %}<span>📄 Sheet: {{ source.sheet_name }}</span>{% endif %}
             </div>
         </div>
         <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
@@ -17,119 +20,159 @@
             <a href="/web/businesses/{{ business.business_id }}/products" class="btn btn-sm" style="background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.3);">محصولات</a>
         </div>
     </div>
-    <div class="hero-stats">
-        <div class="hero-stat"><strong>{{ mappings|length }}</strong><span>نگاشت</span></div>
-        <div class="hero-stat"><strong>{{ import_runs|length }}</strong><span>Import اخیر</span></div>
-        <div class="hero-stat"><strong>{{ source.sheet_name or '—' }}</strong><span>Sheet</span></div>
-    </div>
 </div>
 
 {% if error %}
-<div class="flash flash-error">⚠️ {{ error }}</div>
+<div class="flash flash-error" style="white-space:pre-wrap; line-height:1.8;">⚠️ {{ error }}</div>
+{% endif %}
+{% if success %}
+<div class="flash flash-success" style="white-space:pre-wrap;">{{ success }}</div>
+{% endif %}
+
+<!-- Customer-friendly auto-setup: if no active mapping, show big CTA -->
+{% if not active_mapping %}
+<div class="card" style="border:2px solid var(--primary); background: linear-gradient(135deg, #eff6ff 0%, #f5f3ff 100%); padding:2rem; margin-bottom:1.5rem;">
+    <div style="display:flex; gap:1.5rem; align-items:start; flex-wrap:wrap;">
+        <div style="font-size:3rem;">🚀</div>
+        <div style="flex:1; min-width:280px;">
+            <h2 style="font-size:1.4rem; margin-bottom:0.5rem;">راه‌اندازی خودکار — یک کلیک!</h2>
+            <p class="muted" style="font-size:0.95rem; line-height:1.8; margin-bottom:1rem;">
+                نیازی به تنظیم دستی نیست! سیستم ستون‌های شیت شما را هوشمند شناسایی می‌کند:
+                <br>• نام محصول، قیمت، موجودی، کد کالا و ... به صورت خودکار تشخیص داده می‌شود
+                <br>• فیلدهای اضافی مثل رنگ، سایز به عنوان <strong>فیلد سفارشی</strong> حفظ می‌شود
+                <br>• هر فایلی با هر ترتیبی از ستون‌ها کار می‌کند — طبق دستور کار، ما انعطاف‌پذیر هستیم
+            </p>
+            <div style="background:white; padding:1rem; border-radius:0.6rem; border:1px solid var(--border); margin-bottom:1rem;">
+                <strong style="display:block; margin-bottom:0.5rem;">برای Google Sheets:</strong>
+                <ol style="padding-right:1.2rem; font-size:0.9rem; line-height:1.8;" class="muted">
+                    <li>لینک شیت را کامل Paste کردید ✅ (ID به صورت خودکار استخراج می‌شود)</li>
+                    <li>در Google Sheets: <strong>Share → General access → Anyone with the link → Viewer</strong></li>
+                    <li>دکمه زیر را بزنید — بقیه خودکار!</li>
+                </ol>
+                {% if source.external_ref and 'docs.google.com' in source.external_ref and not source.external_ref.startswith('1') %}
+                <div style="margin-top:0.75rem; padding:0.6rem; background:#f0fdf4; border-radius:0.4rem; font-size:0.85rem;">✅ لینک شما تشخیص داده شد و ID استخراج می‌شود — نیازی به ویرایش نیست</div>
+                {% endif %}
+            </div>
+            <form method="post" action="/web/businesses/{{ business.business_id }}/sources/{{ source.source_id }}/auto-setup" enctype="multipart/form-data" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:end;">
+                {% if source.kind == 'EXCEL_UPLOAD' %}
+                <div class="form-group" style="flex:1; min-width:220px; margin-bottom:0;">
+                    <label>📎 فایل Excel (اگر منبع Excel است)</label>
+                    <input type="file" name="file" accept=".xlsx,.xls" required>
+                </div>
+                {% endif %}
+                <button type="submit" class="btn btn-gradient" style="font-size:1.05rem; padding:1rem 2rem;">✨ شناسایی خودکار و فعال‌سازی</button>
+            </form>
+            <p class="muted" style="font-size:0.8rem; margin-top:0.75rem;">اگر ستون نام محصول تشخیص داده نشود، ویرایشگر ساده‌ای باز می‌شود که فقط یک ستون را انتخاب کنید — 10 ثانیه!</p>
+        </div>
+    </div>
+</div>
+{% else %}
+<!-- Active mapping exists — show one-click import -->
+<div class="card" style="border:2px solid var(--success); background: linear-gradient(135deg, #f0fdf4 0%, #eff6ff 100%); padding:1.5rem; margin-bottom:1.5rem;">
+    <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; justify-content:space-between;">
+        <div style="display:flex; gap:1rem; align-items:center;">
+            <div style="font-size:2.5rem;">✅</div>
+            <div>
+                <h3 style="margin-bottom:0.25rem;">منبع آماده است!</h3>
+                <p class="muted" style="font-size:0.9rem;">نگاشت فعال: v{{ active_mapping.version }} • {{ active_mapping.entries|length }} ستون • آخرین Import: {{ source.last_sync_at or '—' }}</p>
+            </div>
+        </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <form method="post" action="/web/businesses/{{ business.business_id }}/sources/{{ source.source_id }}/preview" enctype="multipart/form-data" style="display:inline;">
+                {% if source.kind == 'EXCEL_UPLOAD' %}<input type="file" name="file" accept=".xlsx,.xls" style="display:none;" id="previewFile">{% endif %}
+                <button type="submit" class="btn btn-outline">🔍 پیش‌نمایش</button>
+            </form>
+            <form method="post" action="/web/businesses/{{ business.business_id }}/sources/{{ source.source_id }}/auto-import" enctype="multipart/form-data" style="display:inline;">
+                {% if source.kind == 'EXCEL_UPLOAD' %}<input type="file" name="file" accept=".xlsx,.xls" style="display:none;" id="importFile">{% endif %}
+                <button type="submit" class="btn btn-gradient" style="font-size:1rem; padding:0.9rem 1.8rem;">🚀 Import یک‌کلیکی — محصولات را وارد کن</button>
+            </form>
+        </div>
+    </div>
+    {% if source.kind == 'EXCEL_UPLOAD' %}
+    <div style="margin-top:1rem; display:flex; gap:0.75rem; flex-wrap:wrap;">
+        <label for="previewFile" class="btn btn-sm btn-ghost" style="cursor:pointer; border:1px dashed var(--border);">📎 انتخاب فایل برای پیش‌نمایش</label>
+        <label for="importFile" class="btn btn-sm btn-ghost" style="cursor:pointer; border:1px dashed var(--border);">📎 انتخاب فایل برای Import</label>
+        <span class="muted" style="font-size:0.8rem; align-self:center;">فایل متفاوت هم باشد مشکلی نیست — ستون‌ها خودکار نگاشت می‌شوند</span>
+    </div>
+    {% endif %}
+</div>
 {% endif %}
 
 <div class="steps">
-    <div class="step {% if source.status != 'PENDING_MAPPING' %}done{% else %}active{% endif %}"><span class="step-number">1</span><span class="step-title">اتصال منبع</span><span class="step-desc">{{ source.kind }}</span></div>
-    <div class="step {% if mappings|selectattr('status','equalto','ACTIVE')|list|length >0 %}done{% elif mappings|length>0 %}active{% else %}{% endif %}"><span class="step-number">2</span><span class="step-title">نگاشت</span><span class="step-desc">ساخت و فعال‌سازی</span></div>
-    <div class="step {% if source.status=='ACTIVE' %}active{% endif %}"><span class="step-number">3</span><span class="step-title">پیش‌نمایش</span><span class="step-desc">Diff</span></div>
-    <div class="step"><span class="step-number">4</span><span class="step-title">Import</span><span class="step-desc">اجرای نهایی</span></div>
-    <div class="step"><span class="step-number">5</span><span class="step-title">محصولات</span><span class="step-desc">نتیجه</span></div>
+    <div class="step done"><span class="step-number">1</span><span class="step-title">اتصال</span><span class="step-desc">لینک / فایل</span></div>
+    <div class="step {% if active_mapping %}done{% else %}active{% endif %}"><span class="step-number">2</span><span class="step-title">شناسایی خودکار</span><span class="step-desc">بدون تنظیم دستی</span></div>
+    <div class="step {% if active_mapping %}active{% endif %}"><span class="step-number">3</span><span class="step-title">پیش‌نمایش</span><span class="step-desc">Diff</span></div>
+    <div class="step"><span class="step-number">4</span><span class="step-title">Import</span><span class="step-desc">محصولات</span></div>
 </div>
 
 <div class="grid-2">
     <div class="card">
-        <h3 style="margin-bottom:1rem;">ℹ️ اطلاعات منبع</h3>
-        <div style="display:grid; gap:0.75rem; font-size:0.92rem;">
-            <div style="display:flex; justify-content:space-between; padding:0.6rem 0; border-bottom:1px solid var(--border);"><span class="muted">ID</span><code style="font-size:0.8rem;">{{ source.source_id }}</code></div>
-            <div style="display:flex; justify-content:space-between; padding:0.6rem 0; border-bottom:1px solid var(--border);"><span class="muted">external_ref</span><span style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ source.external_ref or '—' }}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:0.6rem 0; border-bottom:1px solid var(--border);"><span class="muted">sheet_name</span><span>{{ source.sheet_name or '—' }}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:0.6rem 0; border-bottom:1px solid var(--border);"><span class="muted">range_spec</span><span>{{ source.range_spec or '—' }}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:0.6rem 0; border-bottom:1px solid var(--border);"><span class="muted">credentials_ref</span><span>{{ source.credentials_ref or '—' }}</span></div>
-            <div style="display:flex; justify-content:space-between; padding:0.6rem 0;"><span class="muted">وضعیت</span><span class="badge badge-{{ source.status }}">{{ source.status }}</span></div>
+        <h3 style="margin-bottom:1rem;">ℹ️ اطلاعات منبع — ساده و شفاف</h3>
+        <div style="display:grid; gap:0.6rem; font-size:0.9rem;">
+            <div style="display:flex; justify-content:space-between; padding:0.5rem 0; border-bottom:1px solid var(--border);"><span class="muted">نام</span><strong>{{ source.name }}</strong></div>
+            <div style="display:flex; justify-content:space-between; padding:0.5rem 0; border-bottom:1px solid var(--border);"><span class="muted">نوع</span><span class="badge badge-{{ source.status }}">{{ source.kind }}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:0.5rem 0; border-bottom:1px solid var(--border);"><span class="muted">وضعیت</span><span class="badge badge-{{ source.status }}">{{ source.status }}</span></div>
+            <div style="padding:0.5rem 0; border-bottom:1px solid var(--border);"><span class="muted">لینک / ID:</span><br><code style="font-size:0.8rem; word-break:break-all; background:#f8fafc; padding:0.4rem; border-radius:0.3rem; display:block; margin-top:0.3rem;">{{ source.external_ref or '—' }}</code>
+                <span class="muted" style="font-size:0.75rem;">لینک کامل Paste کنید، ID خودکار استخراج می‌شود — نیازی به جدا کردن ID نیست</span>
+            </div>
+            {% if active_mapping %}
+            <div style="padding:0.5rem 0;"><span class="muted">نگاشت فعال:</span> <strong>v{{ active_mapping.version }} با {{ active_mapping.entries|length }} ستون</strong>
+                <div style="display:flex; flex-wrap:wrap; gap:0.3rem; margin-top:0.5rem;">
+                    {% for e in active_mapping.entries[:8] %}
+                    <span class="badge badge-ARCHIVED" style="font-size:0.7rem;">{{ e.column }}→{{ e.canonical_field or 'سفارشی' }}</span>
+                    {% endfor %}
+                    {% if active_mapping.entries|length>8 %}<span class="muted" style="font-size:0.7rem;">+{{ active_mapping.entries|length-8 }} دیگر</span>{% endif %}
+                </div>
+            </div>
+            {% endif %}
         </div>
-        {% if source.kind == 'GOOGLE_SHEETS' and not source.credentials_ref %}
-        <div class="flash flash-warning" style="margin-top:1rem; font-size:0.85rem;">برای Google Sheets باید credentials_ref تنظیم شود و متغیر محیطی GOOGLE_SERVICE_ACCOUNT_{ref} در worker ست شده باشد. در حالت توسعه می‌توانید با fake client تست کنید.</div>
-        {% endif %}
     </div>
 
-    <div class="card" style="border-right:4px solid var(--primary);">
-        <h3 style="margin-bottom:0.75rem;">🧭 نگاشت ستون‌ها — مرحله کلیدی</h3>
-        <p class="muted" style="font-size:0.9rem; margin-bottom:1rem;">مطابق spec بخش 5-7: اول ستون‌ها کشف می‌شوند، پیشنهاد هوشمند ساخته می‌شود، شما تصحیح می‌کنید، اعتبارسنجی می‌شود، پیش‌نمایش Diff می‌بینید و سپس فعال می‌کنید.</p>
-
-        <div style="display:flex; flex-direction:column; gap:0.75rem;">
-            <form method="post" action="/web/businesses/{{ business.business_id }}/sources/{{ source.source_id }}/mapping/suggest" enctype="multipart/form-data" style="background:#f8fafc; padding:1rem; border-radius:0.6rem; border:1px dashed var(--border);">
-                <strong style="display:block; margin-bottom:0.6rem;">1️⃣ پیشنهاد نگاشت (Suggest)</strong>
-                <p class="muted" style="font-size:0.85rem; margin-bottom:0.75rem;">
-                    {% if source.kind == 'EXCEL_UPLOAD' %}فایل XLSX را آپلود کنید تا هدرها خوانده و نگاشت پیشنهاد شود.{% else %}از شیت گوگل می‌خواند (نیاز به دسترسی).{% endif %}
-                </p>
-                {% if source.kind == 'EXCEL_UPLOAD' %}
-                <div class="form-group" style="margin-bottom:0.75rem;">
-                    <input type="file" name="file" accept=".xlsx,.xls" required>
-                </div>
-                {% endif %}
-                <button type="submit" class="btn btn-sm btn-gradient" style="width:100%;">✨ کشف ستون‌ها و پیشنهاد نگاشت</button>
-            </form>
-
-            <form method="post" action="/web/businesses/{{ business.business_id }}/sources/{{ source.source_id }}/preview" enctype="multipart/form-data" style="background:#f0fdf4; padding:1rem; border-radius:0.6rem; border:1px solid #bbf7d0;">
-                <strong style="display:block; margin-bottom:0.6rem;">2️⃣ پیش‌نمایش (Dry-Run)</strong>
-                <p class="muted" style="font-size:0.85rem; margin-bottom:0.75rem;">با نگاشت فعال، بدون ذخیره، Diff را ببینید.</p>
-                {% if source.kind == 'EXCEL_UPLOAD' %}
-                <div class="form-group" style="margin-bottom:0.75rem;">
-                    <input type="file" name="file" accept=".xlsx,.xls">
-                </div>
-                {% endif %}
-                <button type="submit" class="btn btn-sm btn-success" style="width:100%;">🔍 پیش‌نمایش Import</button>
-            </form>
-
-            <form method="post" action="/web/businesses/{{ business.business_id }}/sources/{{ source.source_id }}/import" enctype="multipart/form-data" style="background:#eff6ff; padding:1rem; border-radius:0.6rem; border:1px solid #bfdbfe;">
-                <strong style="display:block; margin-bottom:0.6rem;">3️⃣ Import نهایی</strong>
-                <p class="muted" style="font-size:0.85rem; margin-bottom:0.75rem;">محصولات ایجاد/به‌روزرسانی می‌شوند، Review Cases ساخته می‌شود.</p>
-                {% if source.kind == 'EXCEL_UPLOAD' %}
-                <div class="form-group" style="margin-bottom:0.75rem;">
-                    <input type="file" name="file" accept=".xlsx,.xls">
-                </div>
-                {% endif %}
-                <button type="submit" class="btn btn-sm btn-primary" style="width:100%;">🚀 اجرای Import</button>
-            </form>
+    <div class="card">
+        <h3 style="margin-bottom:0.75rem;">💡 چرا مپینگ؟ — توضیح ساده برای مشتری</h3>
+        <p class="muted" style="font-size:0.9rem; line-height:1.8; margin-bottom:1rem;">
+            هر مشتری شیت متفاوتی دارد: یکی ستون را «نام محصول» می‌نویسد، یکی «Product»، یکی «عنوان». 
+            سیستم ما هوشمند است و این‌ها را خودکار تشخیص می‌دهد.
+            <br><br>
+            <strong>شما نیازی به مپینگ دستی ندارید!</strong> دکمه «شناسایی خودکار» همه چیز را انجام می‌دهد. فقط اگر ستون خاصی تشخیص داده نشد، یک بار انتخاب می‌کنید — 10 ثانیه.
+            <br><br>
+            <strong>فایل متفاوت هم باشد مشکلی نیست:</strong> طبق دستور کار، هر فایلی با هر ترتیبی کار می‌کند. ستون‌های اضافی به عنوان فیلد سفارشی حفظ می‌شوند، ستون‌های ناشناخته نادیده گرفته نمی‌شوند بلکه ذخیره می‌شوند.
+        </p>
+        <div style="background:#f8fafc; padding:1rem; border-radius:0.6rem; border:1px solid var(--border);">
+            <strong style="font-size:0.9rem;">🔧 تنظیمات پیشرفته (اختیاری)</strong>
+            <div style="display:flex; flex-direction:column; gap:0.5rem; margin-top:0.75rem;">
+                <form method="post" action="/web/businesses/{{ business.business_id }}/sources/{{ source.source_id }}/mapping/suggest" enctype="multipart/form-data" style="display:flex; gap:0.5rem;">
+                    {% if source.kind == 'EXCEL_UPLOAD' %}<input type="file" name="file" accept=".xlsx,.xls" style="flex:1;">{% endif %}
+                    <button type="submit" class="btn btn-sm btn-ghost" style="border:1px dashed var(--border);">ویرایش دستی نگاشت</button>
+                </form>
+                <span class="muted" style="font-size:0.75rem;">برای کاربران حرفه‌ای که می‌خواهند دقیق کنترل کنند کدام ستون به کدام فیلد برود</span>
+            </div>
         </div>
-        <div style="margin-top:1rem; font-size:0.8rem;" class="muted">API: POST /api/v1/.../mapping/suggest, POST .../mapping, POST .../mappings/{id}/activate, POST .../imports</div>
     </div>
 </div>
 
 <div class="grid-2" style="margin-top:1.5rem;">
     <div class="card" style="padding:0; overflow:hidden;">
-        <div style="padding:1.25rem 1.5rem; background:#f8fafc; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
-            <h3>🗂️ نگاشت‌ها ({{ mappings|length }})</h3>
-            {% if mappings|selectattr('status','equalto','DRAFT')|list|length>0 %}<span class="badge badge-DRAFT">DRAFT موجود</span>{% endif %}
+        <div style="padding:1.1rem 1.25rem; background:#f8fafc; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+            <h3>🗂️ نگاشت‌ها</h3>
+            <span class="muted" style="font-size:0.8rem;">{{ mappings|length }} نسخه</span>
         </div>
         {% if mappings %}
         <div style="overflow-x:auto;">
             <table class="table" style="box-shadow:none; border:none; border-radius:0;">
-                <thead><tr><th>نسخه</th><th>وضعیت</th><th>تاریخ</th><th>فیلدها</th><th>عملیات</th></tr></thead>
+                <thead><tr><th>نسخه</th><th>وضعیت</th><th>تاریخ</th><th>عملیات</th></tr></thead>
                 <tbody>
                 {% for m in mappings %}
                 <tr>
-                    <td><strong>v{{ m.version }}</strong><br><span class="muted" style="font-size:0.7rem;">{{ m.mapping_id|truncate(8, True, '') }}</span></td>
+                    <td><strong>v{{ m.version }}</strong></td>
                     <td><span class="badge badge-{{ m.status }}">{{ m.status }}</span></td>
-                    <td class="muted" style="font-size:0.85rem;">{{ m.created_at }}</td>
-                    <td>
-                        <div style="display:flex; flex-wrap:wrap; gap:0.3rem; max-width:220px;">
-                            {% for e in m.entries[:6] %}
-                            <span class="badge badge-ARCHIVED" style="font-size:0.7rem;">{{ e.column }}→{{ e.canonical_field or e.display_name }}</span>
-                            {% endfor %}
-                            {% if m.entries|length>6 %}<span class="muted" style="font-size:0.75rem;">+{{ m.entries|length-6 }} دیگر</span>{% endif %}
-                        </div>
-                    </td>
+                    <td class="muted" style="font-size:0.8rem;">{{ m.created_at.strftime('%Y-%m-%d %H:%M') if m.created_at else '' }}</td>
                     <td>
                         {% if m.status == 'DRAFT' %}
                         <form method="post" action="/web/businesses/{{ business.business_id }}/sources/{{ source.source_id }}/mappings/{{ m.mapping_id }}/activate" style="display:inline;">
                             <button type="submit" class="btn btn-xs btn-success">فعال‌سازی</button>
                         </form>
-                        {% elif m.status == 'ACTIVE' %}
-                        <span class="badge badge-ACTIVE">فعال ✅</span>
-                        {% else %}
-                        <span class="muted" style="font-size:0.75rem;">{{ m.status }}</span>
-                        {% endif %}
+                        {% elif m.status == 'ACTIVE' %}<span class="badge badge-ACTIVE">فعال ✅</span>{% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -137,37 +180,34 @@
             </table>
         </div>
         {% else %}
-        <div class="empty-state" style="border:none;">
-            <div class="icon">🗺️</div>
-            <h3>هنوز نگاشتی نساخته‌اید</h3>
-            <p>ابتدا «کشف ستون‌ها و پیشنهاد نگاشت» را بزنید، سپس در صفحه ویرایش، نگاشت را تصحیح و ذخیره کنید.</p>
+        <div class="empty-state" style="border:none; padding:1.5rem;">
+            <p class="muted" style="font-size:0.9rem;">هنوز نگاشتی ساخته نشده — دکمه «شناسایی خودکار» بالا را بزنید</p>
         </div>
         {% endif %}
     </div>
 
     <div class="card" style="padding:0; overflow:hidden;">
-        <div style="padding:1.25rem 1.5rem; background:#f8fafc; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
-            <h3>📜 Import Runs اخیر ({{ import_runs|length }})</h3>
-            <a href="/api/docs" class="btn btn-xs btn-ghost">API Docs</a>
+        <div style="padding:1.1rem 1.25rem; background:#f8fafc; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+            <h3>📜 Import های اخیر</h3>
+            <a href="/web/businesses/{{ business.business_id }}/products" class="btn btn-xs btn-outline">محصولات</a>
         </div>
         {% if import_runs %}
         <div style="overflow-x:auto;">
             <table class="table" style="box-shadow:none; border:none; border-radius:0;">
-                <thead><tr><th>وضعیت</th><th>شروع</th><th>خلاصه</th><th>Counts</th></tr></thead>
+                <thead><tr><th>وضعیت</th><th>زمان</th><th>نتیجه</th></tr></thead>
                 <tbody>
                 {% for r in import_runs %}
                 <tr>
                     <td><span class="badge badge-{{ r.status }}">{{ r.status }}</span></td>
-                    <td class="muted" style="font-size:0.85rem;">{{ r.started_at }}<br><span style="font-size:0.7rem;">{{ r.correlation_id[:8] if r.correlation_id else '' }}</span></td>
-                    <td class="muted" style="font-size:0.85rem; max-width:180px; overflow:hidden; text-overflow:ellipsis;">{{ r.summary or r.error or '—' }}</td>
+                    <td class="muted" style="font-size:0.8rem;">{{ r.started_at.strftime('%H:%M %m/%d') if r.started_at else '' }}</td>
                     <td>
                         {% if r.counts %}
-                        <div style="display:flex; flex-wrap:wrap; gap:0.25rem;">
-                            {% for k,v in r.counts.items() %}
-                            {% if v>0 %}<span class="badge badge-ARCHIVED" style="font-size:0.65rem;">{{ k }}:{{ v }}</span>{% endif %}
-                            {% endfor %}
+                        <div style="display:flex; flex-wrap:wrap; gap:0.2rem;">
+                            {% if r.counts.new %}<span class="badge badge-NEW" style="font-size:0.65rem;">{{ r.counts.new }} جدید</span>{% endif %}
+                            {% if r.counts.changed %}<span class="badge badge-CHANGED" style="font-size:0.65rem;">{{ r.counts.changed }} تغییر</span>{% endif %}
+                            {% if r.counts.invalid %}<span class="badge badge-INVALID" style="font-size:0.65rem;">{{ r.counts.invalid }} نامعتبر</span>{% endif %}
                         </div>
-                        {% else %}<span class="muted">—</span>{% endif %}
+                        {% else %}<span class="muted" style="font-size:0.8rem;">{{ r.summary or '—' }}</span>{% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -175,19 +215,16 @@
             </table>
         </div>
         {% else %}
-        <div class="empty-state" style="border:none;">
-            <div class="icon">📥</div>
-            <h3>هنوز Import اجرا نشده</h3>
-            <p>پس از ساخت و فعال‌سازی نگاشت، پیش‌نمایش بگیرید و سپس Import نهایی را اجرا کنید.</p>
+        <div class="empty-state" style="border:none; padding:1.5rem;">
+            <p class="muted" style="font-size:0.9rem;">هنوز Import نشده — بعد از راه‌اندازی خودکار، Import یک‌کلیکی بزنید</p>
         </div>
         {% endif %}
     </div>
 </div>
 
-<div style="margin-top:2rem; display:flex; gap:0.75rem; flex-wrap:wrap;">
+<div style="margin-top:1.5rem; display:flex; gap:0.75rem; flex-wrap:wrap;">
     <a href="/web/businesses/{{ business.business_id }}/sources" class="btn btn-ghost">← بازگشت به منابع</a>
     <a href="/web/businesses/{{ business.business_id }}/products" class="btn btn-outline">📦 محصولات</a>
-    <a href="/web/businesses/{{ business.business_id }}/connections" class="btn btn-outline">🔗 اتصالات</a>
-    <a href="/api/docs" class="btn btn-ghost">📚 API Docs</a>
+    <a href="/static/samples/products_sample_fa.xlsx" class="btn btn-ghost" target="_blank">📥 دانلود نمونه Excel</a>
 </div>
 {% endblock %}

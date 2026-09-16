@@ -3,6 +3,11 @@
 {% block content %}
 <div class="hero-section">
     <h1>🔍 پیش‌نمایش Import — {{ source.name }}</h1>
+    {% if auto_setup_success %}
+    <div style="background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.3); padding:1rem; border-radius:0.6rem; margin-bottom:1rem;">
+        <strong>✅ راه‌اندازی خودکار موفق!</strong> نگاشت به صورت خودکار شناسایی و فعال شد. حالا پیش‌نمایش را ببینید و Import نهایی را بزنید — یک کلیک دیگر تا محصولات!
+    </div>
+    {% endif %}
     <p>این یک اجرای آزمایشی (dry-run) است. هیچ تغییری در محصولات ذخیره نمی‌شود. نتایج را بررسی کنید، سپس Import واقعی را اجرا کنید.</p>
     <div class="hero-stats">
         <div class="hero-stat"><strong>{{ preview.headers|length if preview.headers else 0 }}</strong><span>ستون</span></div>

@@ -539,6 +539,19 @@ def source_detail(
         with contextlib.suppress(Exception):
             db.rollback()
 
+    # Check active mapping for UI hints
+    active_mapping = None
+    try:
+        active_mapping = db.scalar(
+            select(models.SourceMapping).where(
+                models.SourceMapping.source_id == source_id,
+                models.SourceMapping.status == enums.MappingStatus.ACTIVE.value,
+            )
+        )
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+
     return templates.TemplateResponse(
         request,
         "source_detail.html",
@@ -548,9 +561,486 @@ def source_detail(
             "source": source,
             "mappings": mappings,
             "import_runs": import_runs,
+            "active_mapping": active_mapping,
             "version": __version__,
         },
     )
+
+
+@router.post(
+    "/businesses/{business_id}/sources/{source_id}/auto-setup",
+    response_class=HTMLResponse,
+)
+async def source_auto_setup(
+    request: Request,
+    business_id: uuid.UUID,
+    source_id: uuid.UUID,
+    db: DbDep,
+    file: Annotated[UploadFile | None, File()] = None,
+):
+    """One-click auto setup: read -> suggest -> create DRAFT -> activate -> preview.
+
+    Customer-friendly: no manual mapping needed if heuristic finds 'name'.
+    If name not found, still creates draft and shows editor for quick fix.
+    """
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
+
+    try:
+        source = db.scalar(
+            select(models.Source).where(
+                models.Source.source_id == source_id,
+                models.Source.business_id == business_id,
+            )
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {"current_user": user, "error": f"DB error: {exc}", "version": __version__},
+            status_code=500,
+        )
+    if not source:
+        return HTMLResponse("Source not found", status_code=404)
+
+    file_bytes = None
+    if file is not None:
+        file_bytes = await file.read()
+        if len(file_bytes) == 0:
+            file_bytes = None
+
+    # Read source
+    try:
+        src_read = read_source(source, file_bytes=file_bytes)
+    except Exception as exc:
+        src_read = None
+        read_error = str(exc)[:400]
+    else:
+        read_error = src_read.error if src_read and src_read.error else None
+
+    if src_read is None or (not src_read.headers and not src_read.complete):
+        try:
+            mappings = db.scalars(
+                select(models.SourceMapping)
+                .where(models.SourceMapping.source_id == source_id)
+                .order_by(models.SourceMapping.created_at.desc())
+                .limit(20)
+            ).all()
+        except Exception:
+            mappings = []
+            with contextlib.suppress(Exception):
+                db.rollback()
+        try:
+            import_runs = db.scalars(
+                select(models.ImportRun)
+                .where(models.ImportRun.source_id == source_id)
+                .order_by(models.ImportRun.created_at.desc())
+                .limit(20)
+            ).all()
+        except Exception:
+            import_runs = []
+            with contextlib.suppress(Exception):
+                db.rollback()
+        # Friendly error with guidance
+        friendly = read_error or "headers خالی"
+        if "public fetch failed" in friendly or "no credentials" in friendly:
+            friendly = (
+                "شیت خوانده نشد. برای Google Sheets:\n"
+                "1) لینک را کامل Paste کنید (مثل https://docs.google.com/spreadsheets/d/XXXX/edit)\n"
+                "2) در Google Sheets، دکمه Share → General access → Anyone with the link → Viewer\n"
+                "3) دوباره امتحان کنید. اگر می‌خواهید خصوصی بماند، باید از طریق پنل ادمین credentials_ref تنظیم شود.\n"
+                f"جزئیات: {read_error}"
+            )
+        return templates.TemplateResponse(
+            request,
+            "source_detail.html",
+            {
+                "current_user": user,
+                "business": business,
+                "source": source,
+                "mappings": mappings,
+                "import_runs": import_runs,
+                "active_mapping": None,
+                "error": friendly,
+                "version": __version__,
+            },
+            status_code=400,
+        )
+
+    suggested_entries = mapping_svc.suggest_entries(src_read.headers)
+    suggested_records = mapping_svc.entries_to_records(suggested_entries)
+
+    # Auto-create mapping if we have at least a name
+    has_name = any(r.get("canonical_field") == "name" for r in suggested_records)
+    if not has_name and suggested_records:
+        # Try to force first column as name if nothing matched (customer-friendly fallback)
+        # Only if first column looks like product name (not ID etc)
+        first = suggested_records[0]
+        if first.get("column"):
+            first["canonical_field"] = "name"
+            first["field_kind"] = "CORE"
+            first["field_type"] = "STRING"
+            first["required"] = True
+            first["display_name"] = "نام محصول"
+            has_name = True
+
+    if not has_name:
+        # Can't auto-activate, show editor with friendly message
+        return templates.TemplateResponse(
+            request,
+            "mapping_editor.html",
+            {
+                "current_user": user,
+                "business": business,
+                "source": source,
+                "headers": src_read.headers,
+                "suggested": suggested_records,
+                "complete": src_read.complete,
+                "read_error": None,
+                "error": "سیستم نتوانست ستون نام محصول را خودکار تشخیص دهد. لطفاً در جدول زیر، یک ستون را به 'نام محصول (name)' نگاشت کنید و ذخیره کنید — بقیه خودکار فعال می‌شود.",
+                "version": __version__,
+            },
+        )
+
+    # Create and activate mapping automatically
+    try:
+        # Deduplicate canonical fields
+        seen = set()
+        cleaned = []
+        for e in suggested_records:
+            col = (e.get("column") or "").strip()
+            if not col:
+                continue
+            canon = (e.get("canonical_field") or "").strip() or None
+            kind = (e.get("field_kind") or "CUSTOM").strip()
+            if not canon:
+                kind = "CUSTOM"
+            if canon and canon in seen:
+                kind = "CUSTOM"
+                canon = None
+            if canon:
+                seen.add(canon)
+            cleaned.append(
+                {
+                    "column": col,
+                    "canonical_field": canon,
+                    "field_kind": kind,
+                    "field_type": e.get("field_type") or "STRING",
+                    "display_name": (e.get("display_name") or col).strip(),
+                    "required": bool(e.get("required")),
+                    "template_exposed": False,
+                    "confidence": float(e.get("confidence") or 0.9),
+                    "evidence": e.get("evidence") or "auto-setup heuristic",
+                }
+            )
+
+        mapping = mapping_svc.create_mapping_version(
+            db, source=source, entries=cleaned, actor_id=user.user_id
+        )
+        mapping_svc.activate_mapping(
+            db, source=source, mapping=mapping, actor_id=user.user_id
+        )
+        db.commit()
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "mapping_editor.html",
+            {
+                "current_user": user,
+                "business": business,
+                "source": source,
+                "headers": src_read.headers,
+                "suggested": suggested_records,
+                "error": f"راه‌اندازی خودکار ناموفق: {exc} — لطفاً دستی ویرایش کنید.",
+                "version": __version__,
+            },
+            status_code=400,
+        )
+
+    # After auto activation, go to preview (dry-run) automatically
+    try:
+        from app.application import import_pipeline
+        from app.application.audit import set_correlation_id
+
+        corr = getattr(request.state, "correlation_id", uuid.uuid4().hex)
+        set_correlation_id(corr)
+        preview = import_pipeline.preview_import(
+            db,
+            source=source,
+            business_id=business.business_id,
+            file_bytes=file_bytes,
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        preview = {
+            "error": str(exc)[:500],
+            "complete": False,
+            "headers": src_read.headers,
+            "rows": [],
+            "counts": {},
+        }
+
+    return templates.TemplateResponse(
+        request,
+        "preview.html",
+        {
+            "current_user": user,
+            "business": business,
+            "source": source,
+            "preview": preview,
+            "auto_setup_success": True,
+            "version": __version__,
+        },
+    )
+
+
+@router.post(
+    "/businesses/{business_id}/sources/{source_id}/auto-import",
+    response_class=HTMLResponse,
+)
+async def source_auto_import(
+    request: Request,
+    business_id: uuid.UUID,
+    source_id: uuid.UUID,
+    db: DbDep,
+    file: Annotated[UploadFile | None, File()] = None,
+):
+    """Ultimate one-click: auto-setup (if needed) + import.
+
+    If active mapping exists, just imports. If not, does auto-setup then import.
+    """
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
+
+    try:
+        source = db.scalar(
+            select(models.Source).where(
+                models.Source.source_id == source_id,
+                models.Source.business_id == business_id,
+            )
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {"current_user": user, "error": f"DB error: {exc}", "version": __version__},
+            status_code=500,
+        )
+    if not source:
+        return HTMLResponse("Source not found", status_code=404)
+
+    file_bytes = None
+    if file is not None:
+        file_bytes = await file.read()
+        if len(file_bytes) == 0:
+            file_bytes = None
+
+    # Ensure active mapping exists, if not auto-setup
+    try:
+        active = db.scalar(
+            select(models.SourceMapping).where(
+                models.SourceMapping.source_id == source_id,
+                models.SourceMapping.status == enums.MappingStatus.ACTIVE.value,
+            )
+        )
+    except Exception:
+        active = None
+        with contextlib.suppress(Exception):
+            db.rollback()
+
+    if not active:
+        # Call auto-setup logic inline (reuse code)
+        try:
+            src_read = read_source(source, file_bytes=file_bytes)
+        except Exception:
+            src_read = None
+
+        if src_read and src_read.headers:
+            suggested_entries = mapping_svc.suggest_entries(src_read.headers)
+            suggested_records = mapping_svc.entries_to_records(suggested_entries)
+            has_name = any(r.get("canonical_field") == "name" for r in suggested_records)
+            if not has_name and suggested_records:
+                first = suggested_records[0]
+                first["canonical_field"] = "name"
+                first["field_kind"] = "CORE"
+                first["required"] = True
+
+            if has_name or (suggested_records and suggested_records[0].get("canonical_field") == "name"):
+                try:
+                    seen = set()
+                    cleaned = []
+                    for e in suggested_records:
+                        col = (e.get("column") or "").strip()
+                        if not col:
+                            continue
+                        canon = (e.get("canonical_field") or "").strip() or None
+                        kind = (e.get("field_kind") or "CUSTOM").strip()
+                        if not canon:
+                            kind = "CUSTOM"
+                        if canon and canon in seen:
+                            kind = "CUSTOM"
+                            canon = None
+                        if canon:
+                            seen.add(canon)
+                        cleaned.append(
+                            {
+                                "column": col,
+                                "canonical_field": canon,
+                                "field_kind": kind,
+                                "field_type": e.get("field_type") or "STRING",
+                                "display_name": (e.get("display_name") or col).strip(),
+                                "required": bool(e.get("required")),
+                                "template_exposed": False,
+                                "confidence": float(e.get("confidence") or 0.9),
+                                "evidence": "auto-import heuristic",
+                            }
+                        )
+                    mapping = mapping_svc.create_mapping_version(
+                        db, source=source, entries=cleaned, actor_id=user.user_id
+                    )
+                    mapping_svc.activate_mapping(
+                        db, source=source, mapping=mapping, actor_id=user.user_id
+                    )
+                    db.commit()
+                except Exception:
+                    with contextlib.suppress(Exception):
+                        db.rollback()
+                    # Continue to try import anyway (will fail with no mapping error, shown nicely)
+
+    # Now run import
+    try:
+        from app.application import import_pipeline
+        from app.application.audit import set_correlation_id
+
+        corr = getattr(request.state, "correlation_id", uuid.uuid4().hex)
+        set_correlation_id(corr)
+
+        running = db.scalar(
+            select(models.ImportRun).where(
+                models.ImportRun.source_id == source.source_id,
+                models.ImportRun.status == enums.ImportRunStatus.RUNNING.value,
+            )
+        )
+        if running:
+            raise ValueError("یک import در حال اجرا است — لطفاً چند ثانیه صبر کنید")
+
+        outcome = import_pipeline.run_import(
+            db,
+            source=source,
+            business_id=business.business_id,
+            actor_id=user.user_id,
+            correlation_id=corr,
+            file_bytes=file_bytes,
+        )
+        db.commit()
+        # Show success with counts
+        try:
+            mappings = db.scalars(
+                select(models.SourceMapping)
+                .where(models.SourceMapping.source_id == source_id)
+                .order_by(models.SourceMapping.created_at.desc())
+                .limit(20)
+            ).all()
+        except Exception:
+            mappings = []
+            with contextlib.suppress(Exception):
+                db.rollback()
+        try:
+            import_runs = db.scalars(
+                select(models.ImportRun)
+                .where(models.ImportRun.source_id == source_id)
+                .order_by(models.ImportRun.created_at.desc())
+                .limit(20)
+            ).all()
+        except Exception:
+            import_runs = []
+            with contextlib.suppress(Exception):
+                db.rollback()
+
+        # Render source detail with success message
+        return templates.TemplateResponse(
+            request,
+            "source_detail.html",
+            {
+                "current_user": user,
+                "business": business,
+                "source": source,
+                "mappings": mappings,
+                "import_runs": import_runs,
+                "active_mapping": db.scalar(
+                    select(models.SourceMapping).where(
+                        models.SourceMapping.source_id == source_id,
+                        models.SourceMapping.status == enums.MappingStatus.ACTIVE.value,
+                    )
+                )
+                if True
+                else None,
+                "success": f"✅ Import موفق! {outcome.counts.get('new',0)} جدید، {outcome.counts.get('changed',0)} تغییر، {outcome.counts.get('invalid',0)} نامعتبر — جزئیات در Import Runs",
+                "version": __version__,
+            },
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        try:
+            mappings = db.scalars(
+                select(models.SourceMapping)
+                .where(models.SourceMapping.source_id == source_id)
+                .order_by(models.SourceMapping.created_at.desc())
+                .limit(20)
+            ).all()
+        except Exception:
+            mappings = []
+            with contextlib.suppress(Exception):
+                db.rollback()
+        try:
+            import_runs = db.scalars(
+                select(models.ImportRun)
+                .where(models.ImportRun.source_id == source_id)
+                .order_by(models.ImportRun.created_at.desc())
+                .limit(20)
+            ).all()
+        except Exception:
+            import_runs = []
+            with contextlib.suppress(Exception):
+                db.rollback()
+
+        return templates.TemplateResponse(
+            request,
+            "source_detail.html",
+            {
+                "current_user": user,
+                "business": business,
+                "source": source,
+                "mappings": mappings,
+                "import_runs": import_runs,
+                "active_mapping": None,
+                "error": str(exc)[:600],
+                "version": __version__,
+            },
+            status_code=400,
+        )
 
 
 @router.post(

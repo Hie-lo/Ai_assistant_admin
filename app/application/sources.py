@@ -55,6 +55,26 @@ def _source_limit(db: Session, business_id: uuid.UUID) -> int | None:
     return ent.source_limit
 
 
+def _extract_sheet_id_from_url(ref: str | None) -> str | None:
+    """Customer-friendly: if user pastes full Google Sheets URL, extract ID."""
+    if not ref:
+        return None
+    ref = ref.strip()
+    if not ref:
+        return None
+    # If it looks like a URL containing /d/, extract ID
+    import re
+
+    m = re.search(r"/d/([a-zA-Z0-9-_]+)", ref)
+    if m:
+        return m.group(1)
+    # Otherwise return as-is (might already be ID, or Excel path etc)
+    # Strip query params if ID with ?usp...
+    if "?" in ref and "/" not in ref:
+        ref = ref.split("?")[0]
+    return ref.strip() or None
+
+
 def create_source(
     db: Session,
     *,
@@ -72,11 +92,17 @@ def create_source(
     limit = _source_limit(db, business_id)
     if limit is not None and source_count(db, business_id) >= limit:
         raise PermissionError("source entitlement limit reached")
+
+    # Customer-friendly: auto-extract spreadsheet ID from full URL for Google Sheets
+    normalized_ref = external_ref
+    if kind == enums.SourceKind.GOOGLE_SHEETS and external_ref:
+        normalized_ref = _extract_sheet_id_from_url(external_ref)
+
     source = models.Source(
         business_id=business_id,
         name=name,
         kind=kind.value,
-        external_ref=external_ref or None,
+        external_ref=normalized_ref or None,
         sheet_name=sheet_name or None,
         range_spec=range_spec or None,
         credentials_ref=credentials_ref or None,
