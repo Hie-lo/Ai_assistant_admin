@@ -91,10 +91,21 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_api_base_url: str = "https://api.telegram.org"
     telegram_request_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    telegram_webhook_secret: str = Field(
+        default="", description="Secret token for Telegram webhook verification"
+    )
     # Shared organization BALE bot (same model: platform-level, env-only).
     bale_bot_token: str = ""
     bale_api_base_url: str = "https://tapi.bale.ai"
     bale_request_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    bale_webhook_secret: str = Field(
+        default="", description="Secret token for Bale webhook verification"
+    )
+
+    # --- Backup off-site (Phase 10) ---
+    backup_s3_bucket: str = ""
+    backup_s3_prefix: str = "backups/"
+    backup_s3_region: str = "us-east-1"
 
     @property
     def is_prod(self) -> bool:

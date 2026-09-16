@@ -1,4 +1,5 @@
 """Scheduler dispatch for configured Google Sheets sources."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -24,51 +25,63 @@ def dispatch_due_sources() -> dict[str, int]:
         sources = db.scalars(
             select(models.Source).where(
                 models.Source.status == enums.SourceStatus.ACTIVE.value,
-                models.Source.kind == enums.SourceKind.GOOGLE_SHEETS.value,
+                models.Source.kind
+                == enums.SourceKind.GOOGLE_SHEETS.value,
                 models.Source.automatic_sync_enabled.is_(True),
             )
         ).all()
+
         for source in sources:
-            due_at = (
-                source.last_sync_at + timedelta(minutes=source.sync_interval_minutes)
-                if source.last_sync_at
-                else now
-            )
-            if due_at > now:
-                continue
-            # Do not create work that cannot legally execute. The Worker
-            # rechecks immediately before the external read as a second gate.
+            # Skip if interval not elapsed
+            if source.last_sync_at is not None:
+                due_at = source.last_sync_at + timedelta(
+                    minutes=source.sync_interval_minutes
+                )
+                if due_at > now:
+                    continue
+
+            # Entitlement gate before creating work (spec section 22)
             effective = entitlements.get_entitlements(
                 db, business_id=source.business_id
             )
             if not effective.has_active:
                 continue
+
             mapping = db.scalar(
                 select(models.SourceMapping).where(
                     models.SourceMapping.source_id == source.source_id,
-                    models.SourceMapping.status == enums.MappingStatus.ACTIVE.value,
+                    models.SourceMapping.status
+                    == enums.MappingStatus.ACTIVE.value,
                 )
             )
             if mapping is None:
                 continue
+
+            # Use high-res correlation_id to avoid minute-bucket collisions
+            correlation = (
+                f"scheduled-{source.source_id}-"
+                f"{now:%Y%m%d%H%M%S}-{now.microsecond}"
+            )
             job, was_created = sync_jobs.enqueue(
                 db,
                 source=source,
                 mapping=mapping,
                 trigger=enums.SyncTrigger.SCHEDULED,
                 requested_by=None,
-                correlation_id=f"scheduled-{source.source_id}-{now:%Y%m%d%H%M}",
+                correlation_id=correlation,
             )
             if was_created:
                 created += 1
                 dispatch_ids.append(str(job.sync_id))
             else:
                 coalesced += 1
+
         db.commit()
         # Dispatch only after commit: workers must never observe an
         # uncommitted SyncJob and report NOT_FOUND.
         for sync_id in dispatch_ids:
             run_sync_job.delay(sync_id)
+
         return {"created": created, "coalesced": coalesced}
     finally:
         db.close()

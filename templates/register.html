@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}ثبت‌نام — دستیار هوشمند{% endblock %}
+{% block content %}
+<div class="auth-card">
+    <h1>ثبت‌نام</h1>
+    <form method="post" action="/web/register" class="form">
+        <div class="form-group">
+            <label for="display_name">نام نمایشی</label>
+            <input type="text" id="display_name" name="display_name" required>
+        </div>
+        <div class="form-group">
+            <label for="email">ایمیل</label>
+            <input type="email" id="email" name="email" required dir="ltr">
+        </div>
+        <div class="form-group">
+            <label for="password">رمز عبور (حداقل ۱۰ کاراکتر)</label>
+            <input type="password" id="password" name="password" required minlength="10" dir="ltr">
+        </div>
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+        <button type="submit" class="btn btn-primary">ثبت‌نام</button>
+    </form>
+    <p class="auth-link">قبلاً ثبت‌نام کرده‌اید؟ <a href="/web/login">وارد شوید</a></p>
+</div>
+{% endblock %}

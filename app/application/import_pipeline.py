@@ -611,9 +611,9 @@ def _create_review_case(
     return case
 
 
-# Module-level reappearance counter (per source); incremented in run_import
-# when a row re-matches a MISSING_FROM_SOURCE product.
-_reappeared_counter: dict[uuid.UUID, int] = {}
+# Local reappearance tracking is now per-run (no global state).
+# Previously this was a module-level dict which could leak across runs
+# and race under concurrency. Now handled via local variable in run_import.
 
 
 # --- main entrypoints -------------------------------------------------------------
@@ -678,6 +678,7 @@ def run_import(
     product_limit = _entitlement_products_limit(db, business_id)
     current_products = products_svc.product_count(db, business_id)
     new_created = 0
+    reappeared = 0
     high_risk_by_field: dict[str, set[uuid.UUID]] = {}
     quarantined_field: str | None = None
     review_cases: list[models.ReviewCase] = []
@@ -896,7 +897,8 @@ def run_import(
         else:  # MATCHED
             reappearing = (
                 product is not None
-                and product.lifecycle_state == enums.ProductLifecycle.MISSING_FROM_SOURCE.value
+                and product.lifecycle_state
+                == enums.ProductLifecycle.MISSING_FROM_SOURCE.value
             )
             product, version, _cats = _upsert_product(
                 db,
@@ -909,9 +911,7 @@ def run_import(
                 content_hash=content_hash,
             )
             if reappearing:
-                _reappeared_counter[source.source_id] = (
-                    _reappeared_counter.get(source.source_id, 0) + 1
-                )
+                reappeared += 1
             if version is not None:
                 counts["changed"] += 1
                 row_results.append(
@@ -990,24 +990,15 @@ def run_import(
         seen_product_ids = {
             r.product_id for r in seen_records if r.product_id is not None
         }
-        # Stale records: locators not present in this read. Records of
-        # products that re-appeared elsewhere (moved rows) are dropped;
-        # the rest are dropped too — the product lifecycle state carries
-        # the missing flag, the record table always mirrors the last
-        # confirmed read.
-        stale = db.scalars(
-            select(models.SourceRecord).where(
-                models.SourceRecord.source_id == source.source_id,
-                models.SourceRecord.business_id == business_id,
-                ~models.SourceRecord.locator.in_(list(seen_locators)),
-            )
-        )
-        for r in stale:
-            db.delete(r)
         missing_candidates = prior_product_ids - seen_product_ids
         baseline = source.last_baseline_count
         if not baseline:
-            baseline = products_svc.product_count(db, business_id, include_archived=False) or 1
+            baseline = (
+                products_svc.product_count(
+                    db, business_id, include_archived=False
+                )
+                or 1
+            )
         if missing_candidates and len(missing_candidates) > int(
             change_risk.MASS_MISSING_RATIO * baseline
         ):
@@ -1021,7 +1012,7 @@ def run_import(
                     payload={
                         "unseen": len(missing_candidates),
                         "baseline": baseline,
-                        "note": "no missing inference applied \u2014 confirm the read",
+                        "note": "no missing inference applied — confirm the read",
                     },
                 )
             )
@@ -1029,21 +1020,38 @@ def run_import(
                 {
                     "locator": "*",
                     "errors": [
-                        "MASS_MISSING_BLOCKED: unseen rows exceed 50% of baseline - "
-                        "no missing inference applied"
+                        "MASS_MISSING_BLOCKED: unseen rows exceed 50% of "
+                        "baseline - no missing inference applied"
                     ],
                 }
             )
+            # Do NOT delete stale records when mass missing is blocked
         else:
+            # Stale records: locators not present in this confirmed read.
+            stale = db.scalars(
+                select(models.SourceRecord).where(
+                    models.SourceRecord.source_id == source.source_id,
+                    models.SourceRecord.business_id == business_id,
+                    ~models.SourceRecord.locator.in_(list(seen_locators)),
+                )
+            )
+            for r in stale:
+                db.delete(r)
+
             for pid in missing_candidates:
                 product = db.get(models.Product, pid)
                 if product is None or product.business_id != business_id:
                     continue
-                if product.lifecycle_state == enums.ProductLifecycle.ACTIVE.value:
-                    product.lifecycle_state = enums.ProductLifecycle.MISSING_FROM_SOURCE.value
+                if (
+                    product.lifecycle_state
+                    == enums.ProductLifecycle.ACTIVE.value
+                ):
+                    product.lifecycle_state = (
+                        enums.ProductLifecycle.MISSING_FROM_SOURCE.value
+                    )
                     missing_count += 1
         counts["missing"] = missing_count
-    counts["reappeared"] = _reappeared_counter.pop(source.source_id, 0)
+    counts["reappeared"] = reappeared
 
     # --- Finalize source + run -------------------------------------------------
     source.last_sync_at = datetime.now(UTC)

@@ -811,10 +811,16 @@ class Notification(Base):
 
     notification_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, primary_key=True, default=_uuid)
     business_id: Mapped[uuid.UUID] = mapped_column(
-        sa.Uuid, ForeignKey("businesses.business_id", ondelete="CASCADE"), nullable=False, index=True
+        sa.Uuid,
+        ForeignKey("businesses.business_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     recipient_user_id: Mapped[uuid.UUID] = mapped_column(
-        sa.Uuid, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, index=True
+        sa.Uuid,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     kind: Mapped[str] = mapped_column(
         Enum(enums.NotificationKind, native_enum=False, validate_strings=True), nullable=False

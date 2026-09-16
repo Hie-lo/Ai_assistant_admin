@@ -2,7 +2,6 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
-
 from app.application.sync_jobs import begin, enqueue, finish, retry_or_exhaust
 from app.domain import enums
 from app.domain.sync_policy import SyncPolicy

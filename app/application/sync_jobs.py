@@ -3,6 +3,7 @@
 This module owns orchestration state only. Product mutation remains in the
 existing import pipeline and is never duplicated here.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -22,7 +23,17 @@ def _key(source_id: uuid.UUID, mapping_id: uuid.UUID | None, bucket: str) -> str
     return hashlib.sha256(raw).hexdigest()
 
 
-def _active_job(db: Session, source_id: uuid.UUID) -> models.SyncJob | None:
+def _active_queuable_job(
+    db: Session, source_id: uuid.UUID
+) -> models.SyncJob | None:
+    """Return an active QUEUED or RETRY_WAITING job for coalescing.
+
+    RUNNING jobs are NOT coalesced — a new request arriving while a sync
+    is running must create a follow-up job after the current run finishes,
+    otherwise the new data would be lost (spec section 21: at most one
+    authoritative sync per Source mutates at a time, duplicate triggers
+    coalesce or become idempotent).
+    """
     return db.scalar(
         select(models.SyncJob)
         .where(
@@ -30,12 +41,20 @@ def _active_job(db: Session, source_id: uuid.UUID) -> models.SyncJob | None:
             models.SyncJob.status.in_(
                 [
                     enums.SyncJobStatus.QUEUED.value,
-                    enums.SyncJobStatus.RUNNING.value,
                     enums.SyncJobStatus.RETRY_WAITING.value,
                 ]
             ),
         )
         .order_by(models.SyncJob.created_at.asc())
+        .with_for_update()
+    )
+
+
+def _lock_source(db: Session, source_id: uuid.UUID) -> models.Source | None:
+    """Lock the Source row to prevent concurrent job creation races."""
+    return db.scalar(
+        select(models.Source)
+        .where(models.Source.source_id == source_id)
         .with_for_update()
     )
 
@@ -51,10 +70,10 @@ def enqueue(
     policy: SyncPolicy | None = None,
     bucket: str | None = None,
 ) -> tuple[models.SyncJob, bool]:
-    """Create one job or coalesce onto the existing active Source job.
+    """Create one job or coalesce onto existing queuable job.
 
-    Returns ``(job, created)``. The row lock is the database-side guard;
-    the unique idempotency key is the durable backstop.
+    Returns (job, created). Row lock on Source + active job is the
+    database-side guard; unique idempotency key is the durable backstop.
     """
     policy = policy or SyncPolicy()
     if (
@@ -62,9 +81,14 @@ def enqueue(
         and source.kind == enums.SourceKind.EXCEL_UPLOAD.value
     ):
         raise ValueError(
-            "scheduled and automatic sync are supported only for Google Sheets sources"
+            "scheduled and automatic sync are supported only for "
+            "Google Sheets sources"
         )
-    active = _active_job(db, source.source_id)
+
+    # Lock source to serialize concurrent enqueues for same source
+    _lock_source(db, source.source_id)
+
+    active = _active_queuable_job(db, source.source_id)
     if active is not None:
         triggers = list(active.coalesced_triggers or [])
         trigger_value = trigger.value
@@ -73,10 +97,19 @@ def enqueue(
         active.coalesced_triggers = triggers
         return active, False
 
+    # Idempotency key: include trigger + correlation_id + high-res timestamp
+    # to avoid minute-bucket collisions when a finished job exists.
+    # Coalescing is the primary dedup guard; this key is the backstop for
+    # duplicate workers.
+    if bucket is None:
+        # High-resolution, unique per request
+        now_iso = datetime.now(UTC).isoformat()
+        bucket = f"{trigger.value}:{correlation_id}:{now_iso}:{uuid.uuid4().hex[:8]}"
+
     idempotency = _key(
         source.source_id,
         mapping.mapping_id if mapping else None,
-        bucket or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M"),
+        bucket,
     )
     job = models.SyncJob(
         source_id=source.source_id,
@@ -98,7 +131,9 @@ def enqueue(
     return job, True
 
 
-def begin(db: Session, job: models.SyncJob, *, policy: SyncPolicy | None = None) -> bool:
+def begin(
+    db: Session, job: models.SyncJob, *, policy: SyncPolicy | None = None
+) -> bool:
     """Atomically claim a queued/retryable job for one worker."""
     if job.status not in (
         enums.SyncJobStatus.QUEUED.value,
@@ -109,6 +144,8 @@ def begin(db: Session, job: models.SyncJob, *, policy: SyncPolicy | None = None)
     if job.attempt_count >= policy.max_attempts:
         job.status = enums.SyncJobStatus.FAILED_RETRY_EXHAUSTED.value
         job.finished_at = datetime.now(UTC)
+        job.heartbeat_at = None
+        job.next_retry_at = None
         return False
     now = datetime.now(UTC)
     job.status = enums.SyncJobStatus.RUNNING.value
@@ -135,6 +172,7 @@ def retry_or_exhaust(
     if policy.exhausted(job.attempt_count):
         job.status = enums.SyncJobStatus.FAILED_RETRY_EXHAUSTED.value
         job.finished_at = now
+        job.next_retry_at = None
         if db is not None:
             from app.application.notifications import notify_sync_failure
 
@@ -162,6 +200,7 @@ def fail_final(
     job.failure_summary = error[:1000]
     job.finished_at = now
     job.heartbeat_at = None
+    job.next_retry_at = None
     from app.application.notifications import notify_sync_failure
 
     notify_sync_failure(
@@ -190,8 +229,12 @@ def finish(
     job.row_errors = row_errors
     job.heartbeat_at = None
     job.finished_at = now
-    job.status = (
-        enums.SyncJobStatus.SUCCEEDED_WITH_ERRORS.value
-        if row_errors
-        else enums.SyncJobStatus.SUCCEEDED.value
-    ) if success else enums.SyncJobStatus.RECOVERY_REQUIRED.value
+    job.next_retry_at = None
+    if success:
+        job.status = (
+            enums.SyncJobStatus.SUCCEEDED_WITH_ERRORS.value
+            if row_errors
+            else enums.SyncJobStatus.SUCCEEDED.value
+        )
+    else:
+        job.status = enums.SyncJobStatus.RECOVERY_REQUIRED.value

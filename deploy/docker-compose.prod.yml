@@ -1,0 +1,117 @@
+# Production compose override (Phase 10/12)
+# Usage: docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d
+
+services:
+  postgres:
+    image: postgres:18-alpine  # Production target per spec, fallback 17 in dev
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_assistant}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../backups:/backups  # For backup/restore
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    command: >
+      postgres
+      -c max_connections=100
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 900 1 --save 300 10
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+
+  web:
+    environment:
+      ENVIRONMENT: prod
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_assistant}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      LOG_LEVEL: INFO
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      BALE_BOT_TOKEN: ${BALE_BOT_TOKEN:-}
+      AI_PROVIDER: ${AI_PROVIDER:-template}
+      AI_OPENROUTER_API_KEY: ${AI_OPENROUTER_API_KEY:-}
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    environment:
+      ENVIRONMENT: prod
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_assistant}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      LOG_LEVEL: INFO
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      BALE_BOT_TOKEN: ${BALE_BOT_TOKEN:-}
+      AI_PROVIDER: ${AI_PROVIDER:-template}
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app:celery worker --loglevel=INFO --concurrency=2
+
+  beat:
+    build: .
+    environment:
+      ENVIRONMENT: prod
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai_assistant}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      LOG_LEVEL: INFO
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.workers.celery_app:celery beat --loglevel=INFO
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../static:/app/static:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - web
+    restart: unless-stopped
+
+volumes:
+  pgdata:

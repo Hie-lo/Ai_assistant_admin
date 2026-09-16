@@ -1,4 +1,5 @@
 """Durable in-app notification use cases."""
+
 from __future__ import annotations
 
 import uuid
@@ -22,9 +23,13 @@ def notify_sync_failure(
     memberships = db.scalars(
         select(models.Membership).where(
             models.Membership.business_id == job.business_id,
-            models.Membership.status == enums.MembershipStatus.ACTIVE.value,
+            models.Membership.status
+            == enums.MembershipStatus.ACTIVE.value,
             models.Membership.role.in_(
-                [enums.MembershipRole.OWNER.value, enums.MembershipRole.ADMIN.value]
+                [
+                    enums.MembershipRole.OWNER.value,
+                    enums.MembershipRole.ADMIN.value,
+                ]
             ),
         )
     ).all()
@@ -46,7 +51,8 @@ def notify_sync_failure(
     for membership in memberships:
         duplicate = db.scalar(
             select(models.Notification).where(
-                models.Notification.recipient_user_id == membership.user_id,
+                models.Notification.recipient_user_id
+                == membership.user_id,
                 models.Notification.correlation_id == job.correlation_id,
                 models.Notification.kind == kind.value,
             )
@@ -69,7 +75,76 @@ def notify_sync_failure(
     return created
 
 
-def mark_read(db: Session, *, notification_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+def notify_high_risk_sync_changes(
+    db: Session,
+    *,
+    business_id: uuid.UUID,
+    correlation_id: str,
+    product_ids: list[uuid.UUID],
+    source_id: uuid.UUID,
+) -> list[models.Notification]:
+    """Notify Owner/Admin that high-risk changes need manual review.
+
+    Hybrid mode: LOW/MEDIUM auto-edit, HIGH/CRITICAL + REPOST needs review.
+    """
+    memberships = db.scalars(
+        select(models.Membership).where(
+            models.Membership.business_id == business_id,
+            models.Membership.status
+            == enums.MembershipStatus.ACTIVE.value,
+            models.Membership.role.in_(
+                [
+                    enums.MembershipRole.OWNER.value,
+                    enums.MembershipRole.ADMIN.value,
+                ]
+            ),
+        )
+    ).all()
+
+    title = "تغییرات پرریسک نیازمند بررسی"
+    body = (
+        f"{len(product_ids)} محصول با تغییرات پرریسک یا نیازمند "
+        "بازانتشار شناسایی شد. لطفاً از پنل وب بررسی کنید."
+    )
+    payload = {
+        "source_id": str(source_id),
+        "product_ids": [str(pid) for pid in product_ids],
+        "count": len(product_ids),
+    }
+
+    created: list[models.Notification] = []
+    for membership in memberships:
+        # Avoid duplicate notification for same correlation_id
+        duplicate = db.scalar(
+            select(models.Notification).where(
+                models.Notification.recipient_user_id
+                == membership.user_id,
+                models.Notification.correlation_id == correlation_id,
+                models.Notification.kind
+                == enums.NotificationKind.SYNC_RECOVERY_REQUIRED.value,
+            )
+        )
+        if duplicate is not None:
+            continue
+        notification = models.Notification(
+            business_id=business_id,
+            recipient_user_id=membership.user_id,
+            kind=enums.NotificationKind.SYNC_RECOVERY_REQUIRED.value,
+            status=enums.NotificationStatus.UNREAD.value,
+            title=title,
+            body=body,
+            data=payload,
+            correlation_id=correlation_id,
+        )
+        db.add(notification)
+        created.append(notification)
+    db.flush()
+    return created
+
+
+def mark_read(
+    db: Session, *, notification_id: uuid.UUID, user_id: uuid.UUID
+) -> bool:
     notification = db.get(models.Notification, notification_id)
     if notification is None or notification.recipient_user_id != user_id:
         return False
