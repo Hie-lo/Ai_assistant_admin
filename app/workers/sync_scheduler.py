@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from celery import shared_task
 from sqlalchemy import select
 
-from app.application import sync_jobs
+from app.application import entitlements, sync_jobs
 from app.domain import enums
 from app.infrastructure.db import models
 from app.infrastructure.db.session import get_session_factory
@@ -35,6 +35,13 @@ def dispatch_due_sources() -> dict[str, int]:
                 else now
             )
             if due_at > now:
+                continue
+            # Do not create work that cannot legally execute. The Worker
+            # rechecks immediately before the external read as a second gate.
+            effective = entitlements.get_entitlements(
+                db, business_id=source.business_id
+            )
+            if not effective.has_active:
                 continue
             mapping = db.scalar(
                 select(models.SourceMapping).where(
