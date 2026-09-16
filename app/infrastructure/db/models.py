@@ -561,6 +561,9 @@ class Source(Base):
     # When False (default), a source refresh must never remove/replace
     # customer-managed media (spec: default safety principle).
     media_authoritative: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Scheduler policy is source-scoped and intentionally configurable.
+    sync_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=1440)
+    automatic_sync_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_baseline_count: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(

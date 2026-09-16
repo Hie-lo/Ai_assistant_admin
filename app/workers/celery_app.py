@@ -18,7 +18,7 @@ celery = Celery(
     settings.app_name,
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
-    include=["app.workers.tasks", "app.workers.sync_tasks"],
+    include=["app.workers.tasks", "app.workers.sync_tasks", "app.workers.sync_scheduler"],
 )
 
 celery.conf.update(
@@ -37,6 +37,10 @@ celery.conf.update(
         "subscription-cycles-hourly": {
             "task": "billing.process_subscription_cycles",
             "schedule": 3600.0,
+        },
+        "sync-dispatch-due-sources": {
+            "task": "sync.dispatch_due_sources",
+            "schedule": 60.0,
         },
     },
 )
