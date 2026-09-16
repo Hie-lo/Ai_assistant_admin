@@ -135,6 +135,15 @@ def retry_or_exhaust(
     if policy.exhausted(job.attempt_count):
         job.status = enums.SyncJobStatus.FAILED_RETRY_EXHAUSTED.value
         job.finished_at = now
+        if db is not None:
+            from app.application.notifications import notify_sync_failure
+
+            notify_sync_failure(
+                db,
+                job=job,
+                kind=enums.NotificationKind.SYNC_RETRY_EXHAUSTED,
+                error=error,
+            )
         return False
     job.status = enums.SyncJobStatus.RETRY_WAITING.value
     job.next_retry_at = now + policy.backoff(job.attempt_count)
