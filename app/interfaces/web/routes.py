@@ -1,22 +1,4 @@
-"""Web Panel routes — Jinja2 + HTMX (Phase 9).
-
-This is the server-rendered Web UI per TECHNOLOGY_AND_REPO_SPECIFICATION_V1
-section 4 (FastAPI/Jinja2 + HTMX, no Node runtime).
-
-All business operations reuse the same application/use-case layer as the
-JSON API (unified permission/use-case layer). Authorization is server-side:
-the session cookie identifies the user; business scope is resolved per request
-and cross-business access fails closed (404).
-
-Pages:
-- /web/login, /web/register, /web/logout
-- /web/ (dashboard)
-- /web/businesses, /web/businesses/new, /web/businesses/{id}
-- /web/businesses/{id}/products, /products/{id}
-- /web/businesses/{id}/sources, /sources/{id}
-- /web/businesses/{id}/connections, /publications
-- /web/businesses/{id}/billing, /members
-"""
+"""Web Panel routes — Jinja2 + HTMX (Phase 9)."""
 
 from __future__ import annotations
 
@@ -76,20 +58,6 @@ def _current_user_from_cookie(
     return user
 
 
-def _require_user(
-    request: Request,
-    db: DbDep,
-    session_cookie: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
-):
-    user = _current_user_from_cookie(request, db, session_cookie)
-    if user is None:
-        raise AuthenticationError("Not authenticated")
-    return user
-
-
-# --- Auth pages --------------------------------------------------------------
-
-
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, db: DbDep):
     user = _current_user_from_cookie(request, db)
@@ -129,14 +97,6 @@ def login_submit(
             },
             status_code=401,
         )
-<<<<<<< HEAD
-    response = RedirectResponse(url="/web/", status_code=302)
-    response.set_cookie(
-        key=get_settings().session_cookie_name,
-        value=token,
-        httponly=True,
-        samesite="lax",
-=======
     settings = get_settings()
     response = RedirectResponse(url="/web/", status_code=302)
     response.set_cookie(
@@ -146,7 +106,6 @@ def login_submit(
         samesite="lax",
         secure=settings.is_prod,
         path="/",
->>>>>>> edd8228 (fix: web login cookie path=/ and secure flag + auth flow)
         max_age=30 * 24 * 3600,
     )
     return response
@@ -199,14 +158,6 @@ def register_submit(
             },
             status_code=400,
         )
-<<<<<<< HEAD
-    response = RedirectResponse(url="/web/", status_code=302)
-    response.set_cookie(
-        key=get_settings().session_cookie_name,
-        value=token,
-        httponly=True,
-        samesite="lax",
-=======
     settings = get_settings()
     response = RedirectResponse(url="/web/", status_code=302)
     response.set_cookie(
@@ -216,7 +167,6 @@ def register_submit(
         samesite="lax",
         secure=settings.is_prod,
         path="/",
->>>>>>> edd8228 (fix: web login cookie path=/ and secure flag + auth flow)
         max_age=30 * 24 * 3600,
     )
     return response
@@ -224,7 +174,6 @@ def register_submit(
 
 @router.get("/logout")
 def logout(request: Request, db: DbDep):
-    # Try to revoke session if present
     try:
         cookie = request.cookies.get(get_settings().session_cookie_name)
         if cookie:
@@ -238,17 +187,10 @@ def logout(request: Request, db: DbDep):
     except Exception:
         pass
     response = RedirectResponse(url="/web/login", status_code=302)
-<<<<<<< HEAD
-    response.delete_cookie(key=get_settings().session_cookie_name)
-=======
     response.delete_cookie(
         key=get_settings().session_cookie_name, path="/"
     )
->>>>>>> edd8228 (fix: web login cookie path=/ and secure flag + auth flow)
     return response
-
-
-# --- Dashboard ---------------------------------------------------------------
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -266,9 +208,6 @@ def dashboard(request: Request, db: DbDep):
             "version": __version__,
         },
     )
-
-
-# --- Businesses --------------------------------------------------------------
 
 
 @router.get("/businesses", response_class=HTMLResponse)
@@ -398,9 +337,6 @@ def product_detail_page(
             "version": __version__,
         },
     )
-
-
-# --- HTMX partials -----------------------------------------------------------
 
 
 @router.get(
