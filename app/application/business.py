@@ -188,6 +188,17 @@ def delete_business(db: Session, *, user: User, business_id: object) -> None:
     except Exception:
         pass
 
+    # 3b. Product presets and versions
+    try:
+        with db.begin_nested():
+            for pp in db.scalars(sel(m.ProductPreset).where(m.ProductPreset.business_id == business.business_id)).all():
+                if hasattr(m, "ProductPresetVersion"):
+                    for ppv in db.scalars(sel(m.ProductPresetVersion).where(m.ProductPresetVersion.product_preset_id == pp.product_preset_id)).all():
+                        db.delete(ppv)
+                db.delete(pp)
+    except Exception:
+        pass
+
     # 4. Sources and related
     try:
         with db.begin_nested():
@@ -218,6 +229,7 @@ def delete_business(db: Session, *, user: User, business_id: object) -> None:
         "ChannelLink",
         "AdminInvite",
         "AdminAccessRequest",
+        "AuditLog",
     ]:
         model = getattr(m, model_name, None)
         if model is not None and hasattr(model, "business_id"):
