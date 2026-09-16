@@ -55,3 +55,13 @@ def list_members(
 ) -> list[schemas.MemberOut]:
     rows = membership_use.list_members(db, viewer=user, business_id=business_id)
     return [schemas.MemberOut.model_validate(m) for m in rows]
+
+
+@router.delete("/businesses/{business_id}", status_code=204)
+def delete_business(
+    business_id: uuid.UUID,
+    user: CurrentUser,
+    db: Db,
+):
+    business_use.delete_business(db, user=user, business_id=business_id)
+    return None

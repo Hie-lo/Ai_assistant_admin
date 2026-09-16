@@ -280,6 +280,18 @@ def businesses_create(
     if not user:
         return RedirectResponse(url="/web/login", status_code=302)
     try:
+        # Prevent duplicate creation on double-click: if same name exists, redirect to existing
+        try:
+            existing_list = biz_svc.list_businesses(db, user=user)
+            for eb in existing_list:
+                if eb.business_name.strip().lower() == name.strip().lower():
+                    return RedirectResponse(
+                        url=f"/web/businesses/{eb.business_id}", status_code=302
+                    )
+        except Exception:
+            with contextlib.suppress(Exception):
+                db.rollback()
+
         business = biz_svc.create_business(
             db,
             user=user,
@@ -2073,6 +2085,50 @@ def product_edit_submit(
     return RedirectResponse(
         url=f"/web/businesses/{business_id}/products/{product_id}", status_code=302
     )
+
+
+@router.post(
+    "/businesses/{business_id}/delete",
+    response_class=HTMLResponse,
+)
+def business_delete(
+    request: Request,
+    business_id: uuid.UUID,
+    db: DbDep,
+):
+    """Delete a business (owner only) — hard delete with all products/sources."""
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        biz_svc.delete_business(db, user=user, business_id=business_id)
+        db.commit()
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        try:
+            businesses = biz_svc.list_businesses(db, user=user)
+        except Exception:
+            businesses = []
+        try:
+            btypes = db.scalars(select(models.BusinessType)).all()
+        except Exception:
+            btypes = []
+            with contextlib.suppress(Exception):
+                db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "businesses.html",
+            {
+                "current_user": user,
+                "businesses": businesses,
+                "business_types": btypes,
+                "error": f"حذف ناموفق: {exc}",
+                "version": __version__,
+            },
+            status_code=400,
+        )
+    return RedirectResponse(url="/web/businesses", status_code=302)
 
 
 @router.get(

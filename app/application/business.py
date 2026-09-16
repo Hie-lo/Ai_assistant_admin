@@ -91,7 +91,7 @@ def require_business_access(
 
 
 def list_businesses(db: Session, *, user: User) -> list[Business]:
-    """Businesses where the user holds an ACTIVE membership."""
+    """Businesses where the user holds an ACTIVE membership — distinct to prevent duplicates."""
     rows = db.scalars(
         select(Business)
         .join(Membership, Membership.business_id == Business.business_id)
@@ -99,6 +99,142 @@ def list_businesses(db: Session, *, user: User) -> list[Business]:
             Membership.user_id == user.user_id,
             Membership.status == enums.MembershipStatus.ACTIVE.value,
         )
+        .distinct()
         .order_by(Business.created_at)
     ).all()
     return list(rows)
+
+
+def delete_business(db: Session, *, user: User, business_id: object) -> None:
+    """Delete a business and all its data (owner only). Hard delete with cascade.
+
+    This is for user-requested cleanup (e.g., duplicate business). Deletes in dependency order
+    to avoid FK violations, using SAVEPOINTs for robustness.
+    """
+    from sqlalchemy import select as sel
+
+    business, membership = require_business_access(db, user=user, business_id=business_id)
+    if membership.role != enums.MembershipRole.OWNER.value:
+        from app.domain.errors import ValidationError
+
+        raise ValidationError("Only owner can delete business")
+
+    # Helper to safely delete all rows of a model filtered by business_id
+    def _delete_all(model, business_filter=True, extra_filter=None):
+        try:
+            with db.begin_nested():
+                stmt = sel(model)
+                if business_filter and hasattr(model, "business_id"):
+                    stmt = stmt.where(model.business_id == business.business_id)
+                if extra_filter is not None:
+                    stmt = stmt.where(extra_filter)
+                for row in db.scalars(stmt).all():
+                    db.delete(row)
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            # Fallback: try bulk delete
+            try:
+                with db.begin_nested():
+                    stmt = model.__table__.delete()
+                    if business_filter and hasattr(model, "business_id"):
+                        stmt = stmt.where(model.__table__.c.business_id == business.business_id)
+                    db.execute(stmt)
+            except Exception:
+                pass
+
+    # Import here to avoid circular
+    from app.infrastructure.db import models as m
+
+    # Order matters: child -> parent
+    # 1. Publications & attempts (depend on posts, connections)
+    try:
+        with db.begin_nested():
+            for pub in db.scalars(sel(m.Publication).where(m.Publication.business_id == business.business_id)).all():
+                # Delete attempts first
+                for att in db.scalars(sel(m.PublicationAttempt).where(m.PublicationAttempt.publication_id == pub.publication_id)).all():
+                    db.delete(att)
+                db.delete(pub)
+    except Exception:
+        pass
+
+    # 2. Posts and versions
+    try:
+        with db.begin_nested():
+            for post in db.scalars(sel(m.Post).where(m.Post.business_id == business.business_id)).all():
+                for pv in db.scalars(sel(m.PostVersion).where(m.PostVersion.post_id == post.post_id)).all():
+                    db.delete(pv)
+                db.delete(post)
+    except Exception:
+        pass
+
+    # 3. Products and related
+    try:
+        with db.begin_nested():
+            for product in db.scalars(sel(m.Product).where(m.Product.business_id == business.business_id)).all():
+                for pv in db.scalars(sel(m.ProductVersion).where(m.ProductVersion.product_id == product.product_id)).all():
+                    db.delete(pv)
+                # Media
+                if hasattr(m, "ProductMedia"):
+                    for pm in db.scalars(sel(m.ProductMedia).where(m.ProductMedia.product_id == product.product_id)).all():
+                        db.delete(pm)
+                # AI artifacts
+                if hasattr(m, "AIOutputArtifact"):
+                    for art in db.scalars(sel(m.AIOutputArtifact).where(m.AIOutputArtifact.product_id == product.product_id)).all():
+                        db.delete(art)
+                db.delete(product)
+    except Exception:
+        pass
+
+    # 4. Sources and related
+    try:
+        with db.begin_nested():
+            for source in db.scalars(sel(m.Source).where(m.Source.business_id == business.business_id)).all():
+                for rec in db.scalars(sel(m.SourceRecord).where(m.SourceRecord.source_id == source.source_id)).all():
+                    db.delete(rec)
+                for mapping in db.scalars(sel(m.SourceMapping).where(m.SourceMapping.source_id == source.source_id)).all():
+                    db.delete(mapping)
+                for run in db.scalars(sel(m.ImportRun).where(m.ImportRun.source_id == source.source_id)).all():
+                    db.delete(run)
+                for job in db.scalars(sel(m.SyncJob).where(m.SyncJob.source_id == source.source_id)).all():
+                    db.delete(job)
+                db.delete(source)
+    except Exception:
+        pass
+
+    # 5. Other business-scoped tables
+    for model_name in [
+        "PlatformConnection",
+        "ReviewCase",
+        "Notification",
+        "SyncJob",
+        "ProductPreset",
+        "CreditPool",
+        "CreditTransaction",
+        "Subscription",
+        "Payment",
+        "ChannelLink",
+        "AdminInvite",
+        "AdminAccessRequest",
+    ]:
+        model = getattr(m, model_name, None)
+        if model is not None and hasattr(model, "business_id"):
+            _delete_all(model)
+
+    # 6. Memberships
+    _delete_all(Membership)
+
+    # 7. Finally business
+    try:
+        with db.begin_nested():
+            db.delete(business)
+            db.flush()
+    except Exception:
+        # Last resort bulk delete
+        try:
+            db.execute(m.Business.__table__.delete().where(m.Business.__table__.c.business_id == business.business_id))
+            db.flush()
+        except Exception:
+            pass

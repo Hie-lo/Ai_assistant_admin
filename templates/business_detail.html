@@ -7,8 +7,11 @@
             <h1>🏢 {{ business.business_name }}</h1>
             <p style="margin-top:0.5rem; opacity:0.9;">نوع: {{ business.business_type_key }} • وضعیت: {{ business.lifecycle_state }} • شناسه: {{ business.business_id|string|truncate(8, True, '') }}</p>
         </div>
-        <div style="display:flex; gap:0.5rem;">
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
             <a href="/web/businesses" class="btn btn-sm" style="background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.3);">← کسب‌وکارها</a>
+            <form method="post" action="/web/businesses/{{ business.business_id }}/delete" style="display:inline;" onsubmit="return confirm('آیا مطمئنید؟ تمام محصولات، منابع و داده‌های این کسب‌وکار حذف می‌شود! این عمل برگشت‌ناپذیر است.');">
+                <button type="submit" class="btn btn-sm" style="background:#fee2e2; color:#dc2626; border:1px solid #fecaca;">🗑️ حذف کسب‌وکار</button>
+            </form>
         </div>
     </div>
     <div class="hero-stats">

@@ -29,10 +29,16 @@
                     <option value="{{ bt.key }}">{{ bt.name }} ({{ bt.key }})</option>
                     {% endfor %}
                 </select>
-                <span class="muted" style="font-size:0.75rem;">نوع کسب‌وکار قالب پیش‌فرض پست‌ها را تعیین می‌کند</span>
+                <span class="muted" style="font-size:0.75rem;">نوع کسب‌وکار قالب پیش‌فرض پست‌ها را تعیین می‌کند — معمولاً فقط یک کسب‌وکار کافی است</span>
             </div>
-            <button type="submit" class="btn btn-gradient" style="width:100%;">🚀 ساخت کسب‌وکار</button>
+            <button type="submit" class="btn btn-gradient" style="width:100%;" id="create-business-btn">🚀 ساخت کسب‌وکار</button>
         </form>
+        <script>
+        document.getElementById('create-business-form')?.addEventListener('submit', function(e){
+            const btn = document.getElementById('create-business-btn');
+            if(btn){ btn.disabled=true; btn.textContent='⏳ در حال ساخت...'; }
+        });
+        </script>
     </div>
 
     <div class="card">
@@ -44,6 +50,8 @@
             <br>• اتصالات پلتفرم جدا (تلگرام، ایتا، روبیکا)
             <br>• اعضای جدا با نقش‌های مختلف
             <br>• اشتراک جدا
+            <br><br>
+            <strong>توصیه:</strong> برای یک فروشگاه فقط یک کسب‌وکار بسازید تا محصولات تکراری پست نشود. اگر اشتباهی دوتا ساختید، با دکمه 🗑️ حذف کنید.
             <br><br>
             tenant isolation مطلق — داده یک کسب‌وکار هرگز به دیگری نشت نمی‌کند.
         </p>
@@ -63,6 +71,9 @@
             <a href="/web/businesses/{{ b.business_id }}" class="btn btn-sm btn-primary">⚙️ مدیریت</a>
             <a href="/web/businesses/{{ b.business_id }}/products" class="btn btn-sm btn-outline">📦 محصولات</a>
             <a href="/web/businesses/{{ b.business_id }}/sources" class="btn btn-sm btn-ghost">📥 منابع</a>
+            <form method="post" action="/web/businesses/{{ b.business_id }}/delete" style="display:inline;" onsubmit="return confirm('آیا مطمئنید؟ تمام محصولات، منابع و داده‌های این کسب‌وکار حذف می‌شود!');">
+                <button type="submit" class="btn btn-sm" style="background:#fee2e2; color:#dc2626; border:1px solid #fecaca;">🗑️ حذف</button>
+            </form>
         </div>
     </div>
 {% endfor %}

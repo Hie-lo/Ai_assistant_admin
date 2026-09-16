@@ -549,48 +549,41 @@ def _upsert_product(
 
     # Customer/AI description priority: if product has manual description edit or AI-approved description, don't overwrite from sheet
     # This implements user requirement: "بعد از اضافه کردن توضیحات توسط مشتری یا ai اون توضیحات اولویت پیدا میکنن نسبت به شیت"
+    # NOTE: We avoid JSON.contains() which fails on JSON (not JSONB) columns and aborts the transaction
+    # (causing InFailedSqlTransaction for subsequent queries). Instead we check in Python with SAVEPOINT.
     has_manual_description = False
     has_ai_description = False
     try:
-        # Check for manual description edit in versions
-        manual_versions = db.scalars(
-            select(models.ProductVersion).where(
-                models.ProductVersion.product_id == product.product_id,
-                models.ProductVersion.change_categories.contains(["MANUAL_EDIT_DESCRIPTION"]),
-            )
-        ).first()
-        if manual_versions is not None:
-            has_manual_description = True
-    except Exception:
-        # contains might not work on all DBs, fallback to checking all versions
-        try:
+        # Use nested transaction (SAVEPOINT) so failure doesn't abort outer import tx
+        with db.begin_nested():
             all_versions = db.scalars(
                 select(models.ProductVersion).where(
                     models.ProductVersion.product_id == product.product_id
                 )
             ).all()
             for v in all_versions:
-                if "MANUAL_EDIT_DESCRIPTION" in (v.change_categories or []):
+                cats = v.change_categories or []
+                if isinstance(cats, list) and "MANUAL_EDIT_DESCRIPTION" in cats:
                     has_manual_description = True
                     break
-        except Exception:
-            pass
+    except Exception:
+        has_manual_description = False
 
     try:
-        # Check for AI-approved description artifact
-        from app.domain import enums as domain_enums
+        with db.begin_nested():
+            from app.domain import enums as domain_enums
 
-        ai_artifact = db.scalars(
-            select(models.AIOutputArtifact).where(
-                models.AIOutputArtifact.product_id == product.product_id,
-                models.AIOutputArtifact.output_definition_key == "ai_description",
-                models.AIOutputArtifact.status == domain_enums.AIArtifactStatus.APPROVED.value,
-            )
-        ).first()
-        if ai_artifact is not None:
-            has_ai_description = True
+            ai_artifact = db.scalars(
+                select(models.AIOutputArtifact).where(
+                    models.AIOutputArtifact.product_id == product.product_id,
+                    models.AIOutputArtifact.output_definition_key == "ai_description",
+                    models.AIOutputArtifact.status == domain_enums.AIArtifactStatus.APPROVED.value,
+                )
+            ).first()
+            if ai_artifact is not None:
+                has_ai_description = True
     except Exception:
-        pass
+        has_ai_description = False
 
     changed_fields: dict = {}
     categories: list[str] = []
