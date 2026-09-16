@@ -110,8 +110,18 @@ def login_submit(
     password: Annotated[str, Form()],
 ):
     try:
+<<<<<<< HEAD
         result = auth_svc.login_user(
             db, email=email.strip(), password=password
+=======
+        _user, token = auth_svc.authenticate(
+            db,
+            email=email.strip(),
+            password=password,
+            ip=request.client.host if request.client else None,
+            user_agent=(request.headers.get("user-agent") or "")[:512]
+            or None,
+>>>>>>> 99bd35c (fix: web auth uses authenticate() not login_user (module has no login_user))
         )
     except Exception:
         return templates.TemplateResponse(
@@ -127,7 +137,11 @@ def login_submit(
     response = RedirectResponse(url="/web/", status_code=302)
     response.set_cookie(
         key=get_settings().session_cookie_name,
+<<<<<<< HEAD
         value=result["token"],
+=======
+        value=token,
+>>>>>>> 99bd35c (fix: web auth uses authenticate() not login_user (module has no login_user))
         httponly=True,
         samesite="lax",
         max_age=30 * 24 * 3600,
@@ -163,8 +177,18 @@ def register_submit(
             display_name=display_name.strip(),
         )
         db.commit()
+<<<<<<< HEAD
         result = auth_svc.login_user(
             db, email=email.strip(), password=password
+=======
+        _user, token = auth_svc.authenticate(
+            db,
+            email=email.strip(),
+            password=password,
+            ip=request.client.host if request.client else None,
+            user_agent=(request.headers.get("user-agent") or "")[:512]
+            or None,
+>>>>>>> 99bd35c (fix: web auth uses authenticate() not login_user (module has no login_user))
         )
     except Exception as exc:
         return templates.TemplateResponse(
@@ -180,7 +204,11 @@ def register_submit(
     response = RedirectResponse(url="/web/", status_code=302)
     response.set_cookie(
         key=get_settings().session_cookie_name,
+<<<<<<< HEAD
         value=result["token"],
+=======
+        value=token,
+>>>>>>> 99bd35c (fix: web auth uses authenticate() not login_user (module has no login_user))
         httponly=True,
         samesite="lax",
         max_age=30 * 24 * 3600,
@@ -194,8 +222,18 @@ def logout(request: Request, db: DbDep):
     try:
         cookie = request.cookies.get(get_settings().session_cookie_name)
         if cookie:
+<<<<<<< HEAD
             auth_svc.logout_user(db, token=cookie)
             db.commit()
+=======
+            resolved = auth_svc.resolve_session(db, cookie)
+            if resolved is not None:
+                _user, session = resolved
+                auth_svc.revoke_session(
+                    db, session, actor_user_id=_user.user_id
+                )
+                db.commit()
+>>>>>>> 99bd35c (fix: web auth uses authenticate() not login_user (module has no login_user))
     except Exception:
         pass
     response = RedirectResponse(url="/web/login", status_code=302)
