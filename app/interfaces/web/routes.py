@@ -18,7 +18,6 @@ from app.application import business as biz_svc
 from app.application import products as products_svc
 from app.config.settings import get_settings
 from app.domain import enums
-from app.domain.errors import AuthenticationError
 from app.infrastructure.db import models
 from app.infrastructure.db.session import get_session_factory
 from app.interfaces.http.deps import SESSION_COOKIE
@@ -86,6 +85,7 @@ def login_submit(
             user_agent=(request.headers.get("user-agent") or "")[:512]
             or None,
         )
+        db.commit()
     except Exception:
         return templates.TemplateResponse(
             request,
@@ -147,6 +147,7 @@ def register_submit(
             user_agent=(request.headers.get("user-agent") or "")[:512]
             or None,
         )
+        db.commit()
     except Exception as exc:
         return templates.TemplateResponse(
             request,
