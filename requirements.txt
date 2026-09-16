@@ -20,3 +20,4 @@ python-multipart==0.0.32
 google-api-python-client==2.200.0
 google-auth==2.58.0
 argon2-cffi==25.1.0
+cryptography==45.0.0

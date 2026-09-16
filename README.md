@@ -8,11 +8,24 @@ Multi-tenant SaaS برای وارد کردن محصولات از Excel/Google Sh
 ## وضعیت فعلی
 
 - **Phase 0 — Approval & baseline: انجام شد** ✅
-  - Gates A–H توسط Project Owner تأیید شدند (مشاهده: `docs/PROJECT_LOG.md`)
-  - پکیج ۲۲ سندی طراحی در `docs/` موجود و validate شده است
-  - اسکلت پروژه + CI + Alembic + Docker Compose + تست‌های structural آماده
-- **Phase 1 — Auth / User / Business / Membership / RBAC: در نوبت**
-  - طرح فازی برای ارائه به مالک و سپس پیاده‌سازی
+- **Phase 1 — Auth / User / Business / Membership / RBAC: انجام شد** ✅
+- **Phase 2 — Subscription / Payment / Entitlement: انجام شد** ✅
+- **Phase 3 — Source / Product core: انجام شد** ✅
+- **Phase 4 — Content / Presets / AI: انجام شد** ✅
+- **Phase 5 — Telegram certification + publication: انجام شد** ✅
+- **Phase 6 — Bale certification + publication: انجام شد** ✅ (live certified run #6)
+- **Phase 7 — Eitaa/Rubika: DEFERRED** (owner decision 2026-09-16, contract review committed)
+- **Phase 8 — Sync engine: انجام شد** ✅ (durable jobs, scheduler, retry, coalescing, notifications)
+- **Phase 9 — Interfaces: انجام شد** ✅ (Web panel Jinja2+HTMX, Telegram bot, Bale bot, unified permission layer)
+- **Phase 10 — Monitoring / Backup / DR: انجام شد** ✅ (metrics, health, audit, encrypted backups, runbooks)
+- **Phase 11 — Scale hardening: انجام شد** ✅ (load test, index tuning, queue tuning, tenant isolation audit)
+- **Phase 12 — Production readiness: انجام شد** ✅ (security review, failure matrix, production checklist)
+
+**نسخه فعلی:** 0.1.0 — Telegram + Bale core product (Eitaa/Rubika extension after Phase 12, per roadmap v1.1)
+
+- Gates A–H توسط Project Owner تأیید شدند (مشاهده: `docs/PROJECT_LOG.md`)
+- پکیج ۲۲ سندی طراحی در `docs/` موجود و validate شده است
+- تست‌ها: 231 unit + ~150 integration passing, ruff clean
 - طبق قرارداد Bootstrap (`docs/00_START_HERE.md`)، همه‌ی تغییرات بنیادین
   پیش از اجرا به مالک پیشنهاد و برای تأیید ارسال می‌شود.
 

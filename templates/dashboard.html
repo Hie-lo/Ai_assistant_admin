@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}داشبورد — دستیار هوشمند{% endblock %}
+{% block content %}
+<div class="dashboard">
+    <h1>خوش آمدید، {{ current_user.display_name }}</h1>
+
+    {% if businesses %}
+    <section class="section">
+        <h2>کسب‌وکارهای شما</h2>
+        <div class="grid">
+            {% for b in businesses %}
+            <div class="card">
+                <h3>{{ b.business_name }}</h3>
+                <p class="muted">{{ b.business_type_key }} — {{ b.lifecycle_state }}</p>
+                <div class="card-actions">
+                    <a href="/web/businesses/{{ b.business_id }}" class="btn btn-sm">مدیریت</a>
+                    <a href="/web/businesses/{{ b.business_id }}/products" class="btn btn-sm">محصولات</a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% else %}
+    <section class="section">
+        <p>هنوز کسب‌وکاری نساخته‌اید.</p>
+        <a href="/web/businesses/new" class="btn btn-primary">ساخت کسب‌وکار جدید</a>
+    </section>
+    {% endif %}
+
+    <section class="section">
+        <h2>دسترسی سریع</h2>
+        <div class="quick-links">
+            <a href="/web/businesses" class="quick-link">🏢 کسب‌وکارها</a>
+            <a href="/api/docs" class="quick-link">📚 مستندات API</a>
+            <a href="/healthz" class="quick-link">💚 سلامت سیستم</a>
+        </div>
+    </section>
+</div>
+{% endblock %}

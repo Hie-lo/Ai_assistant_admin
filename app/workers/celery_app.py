@@ -23,6 +23,7 @@ celery = Celery(
         "app.workers.sync_tasks",
         "app.workers.sync_scheduler",
         "app.workers.sync_recovery",
+        "app.workers.backup_tasks",
     ],
 )
 
@@ -50,6 +51,10 @@ celery.conf.update(
         "sync-recover-jobs": {
             "task": "sync.recover_jobs",
             "schedule": 60.0,
+        },
+        "backup-daily": {
+            "task": "backup.create_daily",
+            "schedule": 86400.0,  # Daily
         },
     },
 )

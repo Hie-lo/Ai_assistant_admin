@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}دستیار هوشمند کسب‌وکارهای مجازی{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+    <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <a href="/web/" class="logo">دستیار هوشمند</a>
+            <nav class="nav">
+                {% if current_user %}
+                <span class="user-info">{{ current_user.display_name }}</span>
+                <a href="/web/businesses">کسب‌وکارها</a>
+                <a href="/web/logout">خروج</a>
+                {% else %}
+                <a href="/web/login">ورود</a>
+                <a href="/web/register">ثبت‌نام</a>
+                {% endif %}
+            </nav>
+        </div>
+    </header>
+    <main class="main container">
+        {% if flash %}
+        <div class="flash flash-{{ flash.type }}">{{ flash.message }}</div>
+        {% endif %}
+        {% block content %}{% endblock %}
+    </main>
+    <footer class="footer">
+        <div class="container">
+            <p>دستیار هوشمند کسب‌وکارهای مجازی — نسخه {{ version }}</p>
+        </div>
+    </footer>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

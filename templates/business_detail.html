@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ business.business_name }} — دستیار هوشمند{% endblock %}
+{% block content %}
+<div class="business-detail">
+    <h1>{{ business.business_name }}</h1>
+    <p class="muted">نوع: {{ business.business_type_key }} | وضعیت: {{ business.lifecycle_state }}</p>
+
+    <div class="tabs" hx-boost="true">
+        <a href="/web/businesses/{{ business.business_id }}/products" class="tab">محصولات</a>
+        <a href="/web/businesses/{{ business.business_id }}/sources" class="tab">منابع</a>
+        <a href="/web/businesses/{{ business.business_id }}/connections" class="tab">اتصالات</a>
+        <a href="/web/businesses/{{ business.business_id }}/publications" class="tab">انتشارها</a>
+        <a href="/web/businesses/{{ business.business_id }}/billing" class="tab">اشتراک</a>
+        <a href="/web/businesses/{{ business.business_id }}/members" class="tab">اعضا</a>
+    </div>
+
+    <section class="section">
+        <h2>آمار کلی</h2>
+        <div class="stats" hx-get="/api/v1/businesses/{{ business.business_id }}/products?limit=1" hx-trigger="load" hx-swap="none">
+            <div class="stat"><span class="stat-value" id="product-count">—</span><span class="stat-label">محصول</span></div>
+            <div class="stat"><span class="stat-value" id="source-count">—</span><span class="stat-label">منبع</span></div>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2>همگام‌سازی</h2>
+        <div id="sync-jobs" hx-get="/web/businesses/{{ business.business_id }}/sync-jobs/partial" hx-trigger="load, every 30s" hx-swap="innerHTML">
+            در حال بارگذاری...
+        </div>
+    </section>
+
+    <section class="section">
+        <h2>اعلان‌ها</h2>
+        <div id="notifications" hx-get="/web/businesses/{{ business.business_id }}/notifications/partial" hx-trigger="load, every 60s">
+            در حال بارگذاری...
+        </div>
+    </section>
+</div>
+{% endblock %}

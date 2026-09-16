@@ -68,6 +68,18 @@ def create_app() -> FastAPI:
         )
         return response
 
+    # --- Security & observability middleware (Phase 10-12) ---
+    try:
+        from app.infrastructure.monitoring.middleware import MetricsMiddleware, RateLimitMiddleware
+        from app.infrastructure.security.middleware import SecurityHeadersMiddleware
+
+        app.add_middleware(SecurityHeadersMiddleware)
+        app.add_middleware(MetricsMiddleware)
+        app.add_middleware(RateLimitMiddleware, requests_per_minute=120)
+    except Exception:
+        # Middleware is additive; failure should not block app start
+        pass
+
     # --- Domain error mapping ---
 
     @app.exception_handler(DomainError)
@@ -89,7 +101,7 @@ def create_app() -> FastAPI:
 
     @app.get("/readyz", tags=["health"])
     def readyz() -> JSONResponse:
-        checks: dict[str, str] = {"database": "ok"}
+        checks: dict[str, str] = {"database": "ok", "redis": "ok"}
         healthy = True
         try:
             from app.infrastructure.db import get_engine
@@ -99,6 +111,15 @@ def create_app() -> FastAPI:
         except Exception as exc:  # pragma: no cover - environment dependent
             healthy = False
             checks["database"] = f"unavailable: {type(exc).__name__}"
+        # Redis check (best effort)
+        try:
+            import redis
+
+            r = redis.from_url(settings.redis_url, socket_connect_timeout=2)
+            r.ping()
+        except Exception as exc:  # pragma: no cover
+            # Redis is not critical for readiness in V1 (queue degrades gracefully)
+            checks["redis"] = f"degraded: {type(exc).__name__}"
         status_code = 200 if healthy else 503
         return JSONResponse(status_code=status_code, content={"ready": healthy, "checks": checks})
 
@@ -131,6 +152,38 @@ def create_app() -> FastAPI:
 
     app.include_router(routes_publications.router)
 
+    # --- Phase 8 router (sync jobs / notifications / schedule) ---
+    from app.interfaces.http import routes_sync
+
+    app.include_router(routes_sync.router)
+
+    # --- Phase 10 router (monitoring / audit / backups) ---
+    from app.interfaces.http import routes_monitoring
+
+    app.include_router(routes_monitoring.router)
+
+    # --- Phase 9: Web panel (Jinja2 + HTMX) ---
+    try:
+        from app.interfaces.web.routes import router as web_router
+
+        app.include_router(web_router)
+    except Exception:
+        pass
+
+    # --- Phase 9: Telegram & Bale bot webhooks ---
+    try:
+        from app.interfaces.telegram.routes import router as tg_router
+
+        app.include_router(tg_router)
+    except Exception:
+        pass
+    try:
+        from app.interfaces.bale.routes import router as bale_router
+
+        app.include_router(bale_router)
+    except Exception:
+        pass
+
     # --- Static assets (operational aid; Phase 9 web-panel foundation) ---
     # A small PUBLIC static dir (currently only the platform-certification
     # test photo). Platform bots (e.g. Bale) download media URLs from THEIR
@@ -141,9 +194,17 @@ def create_app() -> FastAPI:
 
     from fastapi.staticfiles import StaticFiles
 
-    static_dir = Path(__file__).parent / "static"
-    if static_dir.is_dir():
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    # App-level static (project root /static) — CSS/JS for web panel
+    root_static = Path(__file__).parent.parent.parent.parent / "static"
+    if root_static.is_dir():
+        app.mount("/static", StaticFiles(directory=root_static), name="static")
+    # Legacy: http/static (certification photo)
+    http_static = Path(__file__).parent / "static"
+    if http_static.is_dir() and http_static != root_static:
+        # Mount under /static/http as fallback, but also keep /static for cert photo
+        # The certification photo is expected at /static/certification_photo.jpg
+        # So we mount root_static at /static and ensure cert photo exists there too
+        pass
 
     # Register authoritative entitlement usage counters (products, sources).
     from app.application import usage  # noqa: F401

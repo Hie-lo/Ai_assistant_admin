@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}ورود — دستیار هوشمند{% endblock %}
+{% block content %}
+<div class="auth-card">
+    <h1>ورود به پنل</h1>
+    <form method="post" action="/web/login" class="form">
+        <div class="form-group">
+            <label for="email">ایمیل</label>
+            <input type="email" id="email" name="email" required dir="ltr">
+        </div>
+        <div class="form-group">
+            <label for="password">رمز عبور</label>
+            <input type="password" id="password" name="password" required dir="ltr">
+        </div>
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+        <button type="submit" class="btn btn-primary">ورود</button>
+    </form>
+    <p class="auth-link">حساب ندارید؟ <a href="/web/register">ثبت‌نام کنید</a></p>
+</div>
+{% endblock %}

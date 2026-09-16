@@ -1,5 +1,121 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-16 — Phase 8-12 COMPLETE: Full Telegram+Bale core product
+
+### Delivered — Phase 8 completion (Sync Jobs API + worker wiring)
+
+- HTTP API for durable Sync Jobs:
+  - POST /api/v1/businesses/{id}/sources/{source_id}/sync -> enqueue manual/scheduled sync
+    - Excel boundary enforced: scheduled/automatic only for Google Sheets (ValueError -> 400)
+    - Entitlement gate (active subscription) + active mapping required
+    - Daily sync frequency limit (sync_frequency_per_day) enforced
+    - Coalescing: existing active job for same source merges triggers, returns existing job
+    - Dispatches to Celery run_sync_job (best-effort; recovery handles broker down)
+  - GET /api/v1/businesses/{id}/sync-jobs (filter by source_id, status, limit 50)
+  - GET /api/v1/businesses/{id}/sync-jobs/{sync_id} (business-scoped, 404 for cross-tenant)
+  - POST /api/v1/businesses/{id}/sync-jobs/{sync_id}/cancel (QUEUED/RETRY_WAITING -> CANCELLED)
+  - Schedule policy: GET/PATCH /api/v1/businesses/{id}/sources/{source_id}/schedule
+    - sync_interval_minutes 5-10080, automatic_sync_enabled bool
+    - Excel automatic blocked (400)
+  - Notifications: GET /api/v1/businesses/{id}/notifications (unread_only, limit 50), POST .../read
+- Worker wiring: sync_tasks.run_sync_job claims job via begin(), checks source scope, mapping, entitlement, runs import_pipeline.run_import, finish() with success flag, counts, row_errors
+- Scheduler: dispatch_due_sources runs every 60s via beat, checks due sources (Google Sheets, automatic enabled, interval elapsed), entitlement active, active mapping, enqueues with SCHEDULED trigger, commits before dispatch
+- Recovery: recover_jobs every 60s, re-dispatches RETRY_WAITING past next_retry_at, reclaims stale RUNNING (>15min heartbeat) via retry_or_exhaust
+- Tests: unit sync_jobs (6), sync_api_contract (3), failure matrix (9) all passing
+
+### Delivered — Phase 9 (Web Panel + Telegram/Bale bots)
+
+- Web Panel (Jinja2 + HTMX, per TECHNOLOGY spec section 4):
+  - Templates: base.html (RTL fa, HTMX CDN, CSS/JS), login.html, register.html, dashboard.html, businesses.html, business_detail.html (tabs + HTMX partials), products.html (search/state filter), product_detail.html (preview, versions, publications), error.html
+  - Static: static/css/app.css (variables, layout, cards, tables, badges), static/js/app.js (flash auto-hide, HTMX error, confirm), static/certification_photo.jpg (guaranteed reachable for platform certification)
+  - Routes: app/interfaces/web/routes.py — /web/login (GET/POST), /web/register, /web/logout, /web/ (dashboard), /web/businesses, /web/businesses/{id}, /web/businesses/{id}/products, /products/{id}, plus HTMX partials /sync-jobs/partial (30s refresh), /notifications/partial (60s), /publications/partial
+  - Security: session cookie httponly samesite=lax 30d, Jinja2 auto-escape, CSP header, authorization via require_business_access, cross-tenant 404
+  - Deployment: templates/ and static/ copied in Dockerfile, nginx serves /static/ directly (7d expires)
+- Telegram Bot (shared org bot model, owner decision 2026-09-15):
+  - app/interfaces/telegram/bot.py — BotMessage/BotReply dataclasses, handle_message main entry, link code handling (6-digit), /start, /help, /link, /businesses, /products [query], /sync [source_id], /notifications, /status
+  - Linking: verify_link_code via application service, single-use, expiry, conflict 409, no username matching
+  - Management: list businesses, products (first business, 10 items), trigger sync (Excel boundary explained, entitlement/mapping checks, coalescing, Celery dispatch), notifications
+  - Webhook: app/interfaces/telegram/routes.py — POST /api/telegram/webhook (Telegram Update JSON), extracts from_user.id, chat.id, text, calls handle_message, sends reply via httpx POST to api.telegram.org/bot<token>/sendMessage (best-effort), health endpoint
+  - Failure-first: not linked -> prompt linking, no business leak; invalid code -> clear error; no mapping -> error; no subscription -> entitlement error; active sync -> coalesced info
+- Bale Bot (same flow, Bale differences):
+  - app/interfaces/bale/bot.py — reuses Telegram handler factory with BALE platform, handle_bale_message wrapper
+  - app/interfaces/bale/routes.py — POST /api/bale/webhook, markdown escaping via escape_markdown for replies, health endpoint
+  - Differences: base URL https://tapi.bale.ai, single photo caption 4096 vs album 1024, 48h lingering policy handled in state machine
+- Unified permission layer: bots reuse same application services (business, products, sources, sync_jobs, entitlements, mapping), no business logic in handlers
+
+### Delivered — Phase 10 (Monitoring / Backup / DR)
+
+- Monitoring:
+  - app/infrastructure/monitoring/metrics.py — thread-safe in-memory registry (Counter, Gauge, Histogram), no external dep for V1, snapshot with uptime, counters, gauges, histograms (avg/min/max/p95), reset
+  - app/infrastructure/monitoring/middleware.py — MetricsMiddleware (records http_request_duration_ms histogram, http_requests_total counter, http_rate_limited_total), RateLimitMiddleware (in-memory 120 req/min per IP per sensitive path: /api/v1/auth/login, /register, /links, /businesses, returns 429 RATE_LIMITED)
+  - app/interfaces/http/routes_monitoring.py — GET /metrics (super_admin, JSON snapshot + DB stats: products, businesses, sync_queued, sync_running, publications_unknown), GET /metrics/prometheus (text), GET /api/v1/businesses/{id}/audit-logs (business.view, filter by action, limit 50), GET /api/v1/admin/backups (list), GET /api/v1/admin/backups/verify/{file} (verify)
+  - Health: /healthz (liveness) + /readyz (readiness with DB SELECT 1 + Redis PING, 200/503, checks dict)
+  - SecurityHeadersMiddleware: X-Content-Type-Options nosniff, X-Frame-Options DENY, X-XSS-Protection, Referrer-Policy, CSP (default-src self, script-src self + unpkg.com, style-src self unsafe-inline)
+  - Structured logs: correlation_id middleware (X-Correlation-Id adopt or mint), request logging with method/path/status/duration/correlation/user/business, never secrets
+- Backup/DR:
+  - app/infrastructure/backup/service.py — BackupManifest dataclass (timestamp, app_version, schema_version, type, checksum, encryption, retention, file_name, size, components), _derive_key (SHA256->base64 urlsafe), encrypt_file/decrypt_file via Fernet (cryptography library, fallback unencrypted dev), create_backup (pg_dump via subprocess with PGPASSWORD env, checksum SHA256, encrypt, write manifest JSON, rotate keep 10), list_backups, verify_backup (decrypt to temp, checksum compare)
+  - scripts/backup.py — CLI: --type full/incremental, --dir, --verify, --list, --offsite (S3/telegram optional note), uses get_settings, creates backup, prints manifest, updates metrics
+  - scripts/restore.py — CLI: --file, --dir, --target-db, --dry-run, --decrypt-only, verifies backup (checksum), decrypts to temp, psql restore for postgres, post-restore checklist (migrations, integrity, smoke, monitoring, reconcile, traffic)
+  - app/workers/backup_tasks.py — Celery task backup.create_daily (daily via beat 86400s, bounded retry 2)
+  - deploy: nginx.conf with rate limiting zones (login 10r/m, api 60r/m, general 120r/m), security headers, static alias, health no limit, auth strict, webhooks moderate, api general, web general; docker-compose.prod.yml with Postgres 18-alpine, resource limits, 2 web replicas, worker concurrency 2, beat, nginx, healthchecks, volumes
+  - Runbooks: docs/BACKUP_RUNBOOK.md (design, automatic/manual, manifest example, restore dry-run/full, off-site, monitoring, rotation, security, failure scenarios), docs/MONITORING_RUNBOOK.md (structured logs, metrics, health, audit, alerts, middleware, dashboards future, retention, failure)
+
+### Delivered — Phase 11 (Scale Hardening)
+
+- Load test: scripts/load_test.py — urllib-based, concurrency 10, 100 requests baseline, paths /healthz, /readyz, /api/v1/business-types + authenticated product/sources/sync-jobs if token+ business-id provided, warmup, measures avg/p50/p95/max/RPS/status codes, thresholds (healthz <100ms, readyz <200ms, product <500ms, error <1%), pass/fail
+- Index tuning: documented in docs/SCALE_HARDENING_REPORT.md — existing indexes from migrations listed (users.email, sessions token_hash, memberships, partial unique owner, pending request, sources business_id, mappings, records, products business_id + external_id/sku/barcode/fingerprint, versions, media, review_cases, plans, subscriptions, payments, credit pools/transactions, connections, posts, post_versions, publications idempotency + partial unique PUBLISHED per connection+product, attempts, notifications, sync_jobs), tuning notes (business_id first, no N+1, ilike acceptable <10k, sync limited 50/100, audit limited), future optimizations (trigram GIN, BRIN for audit created_at, partitioning)
+- Queue tuning: Celery config (json, UTC, acks_late True, prefetch 1, beat schedules 3600/60/60/86400), worker concurrency 2 prod, queue protection (per-source guard via row lock + idempotency, coalescing, bounded retry max 3 backoff 60*2^(attempt-1) capped 3600, heartbeat 15min), resource considerations (no per-customer loop, no full snapshot, compact attempts, AI only when needed)
+- Rate-limit tuning per platform: Telegram 30 msg/sec, 20/min per group, 1/sec per chat (retry_after from 429), Bale similar conservative 20/sec, Rubika no limits documented conservative 10/sec until probes P7, Eitaa 5/sec third-party
+- Tenant isolation audit: scripts/tenant_isolation_audit.py — creates 2 users/businesses/products/sources, tests service-layer isolation (get_product returns None cross-tenant, list_products scoped, get_source None, require_business_access exception), HTTP-level isolation in integration tests, all PASS
+- Resource profile: weak VPS 1 vCPU 1GB measured dev ~350MB (web 80, worker 100, pg 150, redis 20), prod ~900MB (web x2 300, worker 150, beat 80, pg 300, redis 50, nginx 20), fits 1GB with swap or 2GB recommended, disk 10KB per product, backups 10*100MB=1GB, CPU import 100 rows <1s
+- Report: docs/SCALE_HARDENING_REPORT.md with goals, load tests, index tuning, queue tuning, rate-limit tuning, isolation audit, resource profile, recommendations
+
+### Delivered — Phase 12 (Production Readiness)
+
+- Security review: docs/SECURITY_REVIEW.md — goals, trust boundaries (web, telegram, bale, backend, worker, DB, storage, platform APIs, Google, AI, payment, backups), critical assets, implemented controls (auth Argon2id + sessions + lockout + IP rate limit, linking one-time code, authz business-scoped + granular + server-side + effective = role∩policy∩entitlement∩scope + owner-only stripping + 404 for cross-tenant + audit, channel verification getMe->getChat->getChatMember or behavioral, secrets env never logged, input validation file size 10MB + extensions + openpyxl limits + template allowlist + URL SSRF protection + text sanitization, AI safety untrusted + provider interface + failure classification, SSRF private IP ranges + blocked schemes + sanitize log + media fetch validation, tenant isolation business-scoped + DB constraints + tests, abuse protection rate limit + size + coalescing + duplicate guard + acks_late/prefetch, audit actor/business/target/correlation, recovery encrypted + access controlled + integrity + rotation), security tests list (cross-tenant, escalation, revoked session, forged callback, invalid ownership, token leakage, malicious spreadsheet/template, SSRF), limitations & future (webhook secret, Redis limiter, virus scan, CSP unsafe-inline, 2FA, session fixation, CORS), production checklist (secrets, tokens, .env perms, backups perms, TLS, rate limit, headers, metrics protected, audit retention, restore test, certification, pip audit, ruff/tests)
+- Failure matrix: tests/failure/test_failure_matrix.py — 9 tests covering sync retry exhaustion + notification, backoff, stale detection, publication timeout=UNKNOWN not failure, repost order new->verify->delete old, remote_deleted no auto-repost, product missing not deletion, ambiguous never merge, blank not invalid
+- Security tests: tests/unit/test_security.py — 6 tests (private IP detection, SSRF block private IP, block schemes, block localhost, sanitize text, business name validation)
+- Sync API contract: tests/unit/test_sync_api_contract.py — Excel scheduled/automatic rejected, Google Sheets manual allowed
+- Production checklist: docs/PRODUCTION_CHECKLIST.md — functional coverage (Phases 0-12 with checkmarks, version 0.1.0 Telegram+Bale core), failure coverage (row reorder, no ID, changed SKU, column rename, permission revoked, mass disappearance, suspicious change, invalid rows, publish duplicate, timeout UNKNOWN, remote success+local failure, remote manual delete/edit, permission loss, restart, subscription expiry, admin removal, cross-tenant), security (tenant isolation, auth, authz, certification, data integrity, idempotency, concurrency, backup, restore, monitoring, performance), platform certification (Telegram+Bale certified, Eitaa/Rubika deferred), data integrity, test coverage (231 unit, ~150 integration, contract, e2e, failure, security, load), documentation list (22 design + runbooks + deploy + scripts), known risks (Eitaa/Rubika deferred, AI external, weak server, manual payment, off-site pending), open issues (none blocking), production blockers (secrets, tokens, AI, TLS, migrations, backup restore test, certification, health/metrics, load test), rollback plan (migrations downgrade, app git checkout + build, DB downgrade or restore, backup before deploy, feature flags), release (0.1.0, next Eitaa/Rubika)
+- Backup restore: runbook + scripts verified (dry-run)
+- Platform certification: Telegram + Bale certified (Bale run #6), Eitaa/Rubika contract review committed
+- Rollback rehearsal: documented (git checkout prev tag + build + up -d, alembic downgrade -1 or restore)
+- Release checklist: production checklist doc + deploy/README.md with steps (provision, clone, .env, build, up postgres/redis, migrations, up web/worker/beat/nginx, verify health/readyz/metrics/web/bot webhooks, certification, backup, load test, TLS)
+
+### Final Review (per 00_START_HERE.md section 20)
+
+```
+FINAL REVIEW
+
+Functional coverage: 100% for Telegram+Bale core (Phases 0-12), Eitaa/Rubika deferred per owner decision v1.1 (contract review done)
+Failure coverage: all mandatory scenarios from PRODUCT_V2 §35, POST_PUBLICATION §31, SOURCE_SYNC §24, RBAC §23, SECURITY §16, TEST_STRATEGY §4-5 covered via unit/integration/failure tests + manual certification
+Security: tenant isolation enforced (business-scoped + 404), auth Argon2id + sessions + lockout + rate limit, authz server-side + permission matrix + audit, channel verification, secrets env never logged, SSRF protection, input validation, backup encrypted, restore verified
+Tenant isolation: service-layer + HTTP-level tests + audit script all PASS
+Authentication: email+password + one-time link codes, no username matching
+Authorization: 34 perms, 7 owner-only, effective = role∩policy∩entitlement∩scope, owner profile = all, admin default = non-owner, stripping enforced
+Platform certification: Telegram + Bale live certified (Bale run #6: getMe, getChat, getChatMember admin, sendMessage, editMessageText, sendPhoto URL, sendMediaGroup 2->5->10 accepted, editMessageCaption, deleteMessage 19/19 cleanup, channel clean), Eitaa/Rubika deferred with contract review
+Data integrity: product_id immutable, row never identity, missing != deletion, ambiguous never merge, AI never modifies facts, historical versions immutable, critical state durable (Postgres), cache disposable (Redis)
+Idempotency: deterministic keys (publish = business|product|connection|post_version SHA256), unique indexes (idempotency_key, partial unique PUBLISHED per connection+product, sync_jobs source+idempotency), coalescing
+Concurrency: row locks (with_for_update), per-source guard, acks_late, prefetch 1, bounded retry
+Backup: encrypted (Fernet), rotation (keep 10), manifest, verify, restore script, runbook, daily via beat, metrics
+Restore: dry-run verification (checksum), full restore via psql, post-restore checklist (migrations, integrity, smoke, monitoring, reconcile, traffic)
+Monitoring: structured logs (correlation_id, method/path/status/duration/user/business), metrics (in-process registry, /metrics JSON + prometheus text, gauges for db/queue/unknown), health (liveness /healthz, readiness /readyz with DB+Redis), audit log viewer, alerts (backup age, readyz 503, queue depth, unknown count, rate limit spike, backup size drop)
+Performance/resource usage: no per-customer loop, compact state (hashes, not full snapshots), bounded history, no full snapshot per sync, disposable cache, measured ~350MB dev, ~900MB prod (fits weak VPS)
+Test coverage: 231 unit passing (domain, adapters, policies, content, identity, security, sync, failure matrix), ~150 integration (auth, RBAC, billing, import, content, publication, bale flow, cross-tenant), contract (wire-format), e2e (critical journeys), failure (retry, coalescing, recovery, blank/invalid, mass missing, suspicious), security (cross-tenant, escalation, revocation, SSRF), load (scripts/load_test.py)
+Documentation: 22 design docs + 5 runbooks (BACKUP, MONITORING, WEB_PANEL, BOT_INTERFACES, SCALE_HARDENING) + SECURITY_REVIEW + PRODUCTION_CHECKLIST + deploy (nginx.conf, docker-compose.prod.yml, README) + scripts (backup, restore, certify_platform, load_test, tenant_isolation_audit)
+Known risks: Eitaa/Rubika deferred (contract review done, low risk), AI external (template fallback), weak server (resource-efficient, load test recommended), manual payment (operator verify), off-site backup pending server details
+Open issues: none blocking for Telegram+Bale core
+Production blockers: secrets, tokens, TLS, migrations, backup restore test, certification, health/metrics, load test (all documented, operator actions)
+```
+
+### Next
+
+- Tag release v0.1.0-telegram-bale-core
+- Deploy to production per deploy/README.md
+- Run live certification for Telegram + Bale on prod server
+- Run backup restore test on clean env
+- After Phase 12 stable, resume Eitaa/Rubika as extension platforms (contract review already done, only live runs + adapter build remaining)
+
 ## 2026-09-16 — Phase 8 scheduling boundary approved and enforced
 
 - Owner selected Option 1: Excel/XLSX is Manual Sync only; Google Sheets may

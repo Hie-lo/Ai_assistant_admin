@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ product.name }} — محصولات{% endblock %}
+{% block content %}
+<div class="product-detail">
+    <h1>{{ product.name }}</h1>
+    <div class="product-meta">
+        <p><strong>قیمت:</strong> {{ product.price or '—' }} {{ product.currency }}</p>
+        <p><strong>موجودی:</strong> {{ product.stock or '—' }}</p>
+        <p><strong>دسته:</strong> {{ product.category or '—' }}</p>
+        <p><strong>وضعیت:</strong> {{ product.lifecycle_state }}</p>
+        <p><strong>شناسه خارجی:</strong> {{ product.external_id or '—' }}</p>
+        <p><strong>SKU:</strong> {{ product.sku or '—' }}</p>
+    </div>
+    {% if product.description %}
+    <div class="product-description">
+        <h3>توضیحات</h3>
+        <p>{{ product.description }}</p>
+    </div>
+    {% endif %}
+    {% if product.attributes %}
+    <div class="product-attributes">
+        <h3>ویژگی‌ها</h3>
+        <ul>
+        {% for k,v in product.attributes.items() %}
+            <li><strong>{{ k }}:</strong> {{ v }}</li>
+        {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+    <div class="product-actions">
+        <button hx-get="/api/v1/businesses/{{ business.business_id }}/products/{{ product.product_id }}/preview" hx-target="#preview" class="btn">پیش‌نمایش پست</button>
+        <a href="/web/businesses/{{ business.business_id }}/products/{{ product.product_id }}/edit" class="btn">ویرایش</a>
+    </div>
+    <div id="preview" class="preview-box"></div>
+
+    <section class="section">
+        <h3>نسخه‌ها</h3>
+        <div hx-get="/web/businesses/{{ business.business_id }}/products/{{ product.product_id }}/versions/partial" hx-trigger="load"></div>
+    </section>
+
+    <section class="section">
+        <h3>انتشارها</h3>
+        <div hx-get="/web/businesses/{{ business.business_id }}/publications/partial?product_id={{ product.product_id }}" hx-trigger="load"></div>
+    </section>
+</div>
+{% endblock %}

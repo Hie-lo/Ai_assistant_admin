@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}محصولات — {{ business.business_name }}{% endblock %}
+{% block content %}
+<div class="products-page">
+    <h1>محصولات — {{ business.business_name }}</h1>
+    <div class="toolbar">
+        <form method="get" class="search-form">
+            <input type="text" name="q" placeholder="جستجو..." value="{{ q or '' }}">
+            <select name="state">
+                <option value="">همه وضعیت‌ها</option>
+                <option value="ACTIVE" {% if state == 'ACTIVE' %}selected{% endif %}>فعال</option>
+                <option value="MISSING_FROM_SOURCE" {% if state == 'MISSING_FROM_SOURCE' %}selected{% endif %}>گمشده</option>
+                <option value="REVIEW_REQUIRED" {% if state == 'REVIEW_REQUIRED' %}selected{% endif %}>نیاز به بررسی</option>
+                <option value="ARCHIVED" {% if state == 'ARCHIVED' %}selected{% endif %}>آرشیو</option>
+            </select>
+            <button type="submit" class="btn btn-sm">فیلتر</button>
+        </form>
+    </div>
+    <table class="table">
+        <thead>
+            <tr><th>نام</th><th>قیمت</th><th>موجودی</th><th>وضعیت</th><th>عملیات</th></tr>
+        </thead>
+        <tbody>
+        {% for p in products %}
+            <tr>
+                <td>{{ p.name }}</td>
+                <td>{{ p.price or '—' }}</td>
+                <td>{{ p.stock or '—' }}</td>
+                <td><span class="badge badge-{{ p.lifecycle_state }}">{{ p.lifecycle_state }}</span></td>
+                <td>
+                    <a href="/web/businesses/{{ business.business_id }}/products/{{ p.product_id }}" class="btn btn-xs">مشاهده</a>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% if not products %}
+    <p class="muted">محصولی یافت نشد. از منابع، داده وارد کنید.</p>
+    {% endif %}
+</div>
+{% endblock %}
