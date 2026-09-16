@@ -1,5 +1,23 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-17 — Full web panel audit + business creation fix (post login-loop)
+
+- **Follow-up to WEB-LOGIN-LOOP-01:** After fixing cookie parsing (ed25360, ebaa75c), dashboard exposed secondary bug:
+  `AttributeError: module 'app.application.business' has no attribute 'list_user_businesses'`
+  Stack: `app/interfaces/web/routes.py:222 dashboard -> biz_svc.list_user_businesses`
+  Root cause: function renamed to `list_businesses(db, user=User)` during Phase 1, but web and telegram bot still called old name `list_user_businesses(db, user_id=...)`. Hidden by login loop (user never reached dashboard).
+- **Fixes:**
+  - `app/interfaces/web/routes.py`: `list_user_businesses` -> `list_businesses(db, user=user)` in dashboard and businesses_list (commit 17c8388)
+  - `app/interfaces/telegram/bot.py`: `_list_user_businesses` now fetches User by id then calls `list_businesses(db, user=user)`, returns [] if not found — fixes /start /businesses /products /sync /notifications commands (commit 17c8388)
+  - Full audit: `grep -R biz_svc/products_svc/sources_svc/sync_jobs_svc/ent_svc/auth_svc` across `app/interfaces` -> 0 missing attrs, all modules import OK
+  - `templates/businesses.html`: form action was `/api/v1/businesses` (expects JSON) -> 422, changed to `/web/businesses` (commit 4785850)
+  - Added `POST /web/businesses` route: creates business via `biz_svc.create_business`, commits, redirects to detail, shows error on failure — makes web panel fully usable for business creation
+  - Added `GET /web/businesses/new` -> redirect to `/web/businesses` (dashboard link fix)
+  - Added missing tab routes: `/sources`, `/connections`, `/billing`, `/members`, `/publications` — previously 404 when clicking tabs in business_detail.html, now return business_detail with context, keeping navigation usable
+- **Verification:** ruff clean, 240 unit+failure tests pass, all app modules import (0 failed), router 13+ routes, manual audit of business/product/source/sync_job services
+- **Impact:** Web panel now end-to-end usable: login -> dashboard (business list) -> create business -> manage business -> products. Telegram/Bale bots also fixed for business listing. No fundamental arch change, only hardening + missing route completion per Phase 9 spec.
+- **Commits:** 17c8388 (dashboard 500 fix), 4785850 (business creation + tab routes)
+
 ## 2026-09-17 — Web login loop root cause + robust fix (cookie parsing)
 
 - **BUG ID:** WEB-LOGIN-LOOP-01
