@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+<<<<<<< HEAD
+=======
+import contextlib
+>>>>>>> 94f6ceb (fix: web login/register commit + rollback handling + ruff clean)
 import uuid
 from pathlib import Path
 from typing import Annotated
@@ -33,12 +37,24 @@ def _get_db() -> Session:
     db = factory()
     try:
         yield db
+<<<<<<< HEAD
         db.commit()
     except Exception:
         db.rollback()
         raise
     finally:
         db.close()
+=======
+        with contextlib.suppress(Exception):
+            db.commit()
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        raise
+    finally:
+        with contextlib.suppress(Exception):
+            db.close()
+>>>>>>> 94f6ceb (fix: web login/register commit + rollback handling + ruff clean)
 
 
 DbDep = Annotated[Session, Depends(_get_db)]
@@ -49,7 +65,16 @@ def _current_user_from_cookie(
     db: DbDep,
     session_cookie: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ):
+<<<<<<< HEAD
     resolved = auth_svc.resolve_session(db, session_cookie)
+=======
+    try:
+        resolved = auth_svc.resolve_session(db, session_cookie)
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return None
+>>>>>>> 94f6ceb (fix: web login/register commit + rollback handling + ruff clean)
     if resolved is None:
         return None
     user, _ = resolved
@@ -87,6 +112,11 @@ def login_submit(
         )
         db.commit()
     except Exception:
+<<<<<<< HEAD
+=======
+        with contextlib.suppress(Exception):
+            db.rollback()
+>>>>>>> 94f6ceb (fix: web login/register commit + rollback handling + ruff clean)
         return templates.TemplateResponse(
             request,
             "login.html",
@@ -149,6 +179,11 @@ def register_submit(
         )
         db.commit()
     except Exception as exc:
+<<<<<<< HEAD
+=======
+        with contextlib.suppress(Exception):
+            db.rollback()
+>>>>>>> 94f6ceb (fix: web login/register commit + rollback handling + ruff clean)
         return templates.TemplateResponse(
             request,
             "register.html",
@@ -186,7 +221,12 @@ def logout(request: Request, db: DbDep):
                 )
                 db.commit()
     except Exception:
+<<<<<<< HEAD
         pass
+=======
+        with contextlib.suppress(Exception):
+            db.rollback()
+>>>>>>> 94f6ceb (fix: web login/register commit + rollback handling + ruff clean)
     response = RedirectResponse(url="/web/login", status_code=302)
     response.delete_cookie(
         key=get_settings().session_cookie_name, path="/"
