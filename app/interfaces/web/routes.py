@@ -219,7 +219,7 @@ def dashboard(request: Request, db: DbDep):
     user = _current_user_from_cookie(request, db)
     if not user:
         return RedirectResponse(url="/web/login", status_code=302)
-    businesses = biz_svc.list_user_businesses(db, user_id=user.user_id)
+    businesses = biz_svc.list_businesses(db, user=user)
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -236,7 +236,7 @@ def businesses_list(request: Request, db: DbDep):
     user = _current_user_from_cookie(request, db)
     if not user:
         return RedirectResponse(url="/web/login", status_code=302)
-    businesses = biz_svc.list_user_businesses(db, user_id=user.user_id)
+    businesses = biz_svc.list_businesses(db, user=user)
     btypes = db.scalars(select(models.BusinessType)).all()
     return templates.TemplateResponse(
         request,

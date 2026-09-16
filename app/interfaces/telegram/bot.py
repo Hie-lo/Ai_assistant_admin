@@ -69,7 +69,10 @@ def _find_linked_user(db: Session, platform: str, platform_user_id: str):
 
 
 def _list_user_businesses(db: Session, user_id: uuid.UUID):
-    return biz_svc.list_user_businesses(db, user_id=user_id)
+    user = db.get(models.User, user_id)
+    if user is None:
+        return []
+    return biz_svc.list_businesses(db, user=user)
 
 
 def handle_message(msg: BotMessage) -> BotReply:
