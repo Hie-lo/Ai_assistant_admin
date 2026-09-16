@@ -24,7 +24,6 @@ celery = Celery(
         "app.workers.sync_scheduler",
         "app.workers.sync_recovery",
         "app.workers.backup_tasks",
-        "app.workers.publication_recovery",
     ],
 )
 
@@ -56,10 +55,6 @@ celery.conf.update(
         "backup-daily": {
             "task": "backup.create_daily",
             "schedule": 86400.0,  # Daily
-        },
-        "publications-recover-unknown": {
-            "task": "publications.recover_unknown",
-            "schedule": 3600.0,  # Hourly auto-reconcile UNKNOWN
         },
     },
 )

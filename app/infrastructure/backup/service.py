@@ -105,34 +105,6 @@ def decrypt_file(input_path: Path, output_path: Path, secret_key: str):
     output_path.write_bytes(decrypted)
 
 
-def _maybe_upload_offsite(enc_file: Path, manifest_file: Path) -> None:
-    """Best-effort off-site upload if BACKUP_S3_BUCKET is configured.
-
-    Uses boto3 if available, otherwise skips (never fails backup).
-    """
-    try:
-        import os
-
-        bucket = os.environ.get("BACKUP_S3_BUCKET", "")
-        if not bucket:
-            return
-        # Lazy import boto3
-        try:
-            import boto3
-        except ImportError:
-            return
-        prefix = os.environ.get("BACKUP_S3_PREFIX", "backups/")
-        region = os.environ.get("BACKUP_S3_REGION", "us-east-1")
-        s3 = boto3.client("s3", region_name=region)
-        for fp in (enc_file, manifest_file):
-            if fp.exists():
-                key = f"{prefix.rstrip('/')}/{fp.name}"
-                s3.upload_file(str(fp), bucket, key)
-    except Exception:
-        # Off-site is optional, never fail the local backup
-        pass
-
-
 def create_backup(
     database_url: str,
     backup_dir: Path,
@@ -214,9 +186,6 @@ def create_backup(
     )
 
     _rotate_backups(backup_dir, keep=10)
-
-    # Best-effort off-site copy (does not fail local backup)
-    _maybe_upload_offsite(enc_file, manifest_file)
 
     return manifest
 

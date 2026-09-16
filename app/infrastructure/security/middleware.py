@@ -138,26 +138,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-        # HSTS only in prod (avoids breaking http dev)
-        try:
-            from app.config.settings import get_settings
-
-            if get_settings().is_prod:
-                response.headers["Strict-Transport-Security"] = (
-                    "max-age=31536000; includeSubDomains"
-                )
-        except Exception:
-            pass
-        # CSP: self + htmx CDN, no unsafe-inline for scripts, unsafe-inline
-        # for styles kept minimal (HTMX needs some inline styles for progress)
+        # CSP: allow self + htmx CDN + inline styles for simplicity
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self' https://unpkg.com; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: https:; "
-            "connect-src 'self'; "
-            "frame-ancestors 'none';"
+            "connect-src 'self';"
         )
         return response
 

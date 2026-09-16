@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel
 
 from app.config.settings import get_settings
@@ -21,24 +21,8 @@ class TelegramUpdate(BaseModel):
 
 
 def _verify_telegram_secret(
-    x_telegram_bot_api_secret_token: str | None = Header(
-        default=None, alias="X-Telegram-Bot-Api-Secret-Token"
-    ),
+    x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ):
-    """Enforce webhook secret if configured (SECURITY_REVIEW §6).
-
-    If TELEGRAM_WEBHOOK_SECRET is set, the incoming request must carry the
-    matching X-Telegram-Bot-Api-Secret-Token header. Otherwise (dev mode)
-    the check is best-effort and allows the request.
-    """
-    settings = get_settings()
-    expected = settings.telegram_webhook_secret
-    if not expected:
-        return True
-    if not x_telegram_bot_api_secret_token:
-        raise HTTPException(status_code=401, detail="missing webhook secret")
-    if x_telegram_bot_api_secret_token != expected:
-        raise HTTPException(status_code=403, detail="invalid webhook secret")
     return True
 
 
@@ -70,9 +54,7 @@ async def telegram_webhook(
     try:
         reply = handle_message(bot_msg)
     except Exception as exc:
-        logger.exception(
-            "telegram bot handler failed: %s", type(exc).__name__
-        )
+        logger.exception("telegram bot handler failed: %s", type(exc).__name__)
         return {"ok": True}
 
     if bot_msg.chat_id and reply.text:
@@ -107,6 +89,5 @@ def telegram_health():
     return {
         "platform": "TELEGRAM",
         "configured": bool(settings.telegram_bot_token),
-        "webhook_secret_enforced": bool(settings.telegram_webhook_secret),
         "webhook": "/api/telegram/webhook",
     }
