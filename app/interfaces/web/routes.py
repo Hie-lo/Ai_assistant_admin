@@ -96,8 +96,9 @@ def login_page(request: Request, db: DbDep):
     if user:
         return RedirectResponse(url="/web/", status_code=302)
     return templates.TemplateResponse(
+        request,
         "login.html",
-        {"request": request, "current_user": None, "version": __version__},
+        {"current_user": None, "version": __version__},
     )
 
 
@@ -109,12 +110,14 @@ def login_submit(
     password: Annotated[str, Form()],
 ):
     try:
-        result = auth_svc.login_user(db, email=email.strip(), password=password)
+        result = auth_svc.login_user(
+            db, email=email.strip(), password=password
+        )
     except Exception:
         return templates.TemplateResponse(
+            request,
             "login.html",
             {
-                "request": request,
                 "current_user": None,
                 "error": "ایمیل یا رمز عبور اشتباه است",
                 "version": __version__,
@@ -138,8 +141,9 @@ def register_page(request: Request, db: DbDep):
     if user:
         return RedirectResponse(url="/web/", status_code=302)
     return templates.TemplateResponse(
+        request,
         "register.html",
-        {"request": request, "current_user": None, "version": __version__},
+        {"current_user": None, "version": __version__},
     )
 
 
@@ -153,15 +157,20 @@ def register_submit(
 ):
     try:
         auth_svc.register_user(
-            db, email=email.strip(), password=password, display_name=display_name.strip()
+            db,
+            email=email.strip(),
+            password=password,
+            display_name=display_name.strip(),
         )
         db.commit()
-        result = auth_svc.login_user(db, email=email.strip(), password=password)
+        result = auth_svc.login_user(
+            db, email=email.strip(), password=password
+        )
     except Exception as exc:
         return templates.TemplateResponse(
+            request,
             "register.html",
             {
-                "request": request,
                 "current_user": None,
                 "error": str(exc)[:300],
                 "version": __version__,
@@ -183,7 +192,6 @@ def register_submit(
 def logout(request: Request, db: DbDep):
     # Try to revoke session if present
     try:
-
         cookie = request.cookies.get(get_settings().session_cookie_name)
         if cookie:
             auth_svc.logout_user(db, token=cookie)
@@ -205,9 +213,9 @@ def dashboard(request: Request, db: DbDep):
         return RedirectResponse(url="/web/login", status_code=302)
     businesses = biz_svc.list_user_businesses(db, user_id=user.user_id)
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
         {
-            "request": request,
             "current_user": user,
             "businesses": businesses,
             "version": __version__,
@@ -226,9 +234,9 @@ def businesses_list(request: Request, db: DbDep):
     businesses = biz_svc.list_user_businesses(db, user_id=user.user_id)
     btypes = db.scalars(select(models.BusinessType)).all()
     return templates.TemplateResponse(
+        request,
         "businesses.html",
         {
-            "request": request,
             "current_user": user,
             "businesses": businesses,
             "business_types": btypes,
@@ -248,9 +256,9 @@ def business_detail(request: Request, business_id: uuid.UUID, db: DbDep):
         )
     except Exception:
         return templates.TemplateResponse(
+            request,
             "error.html",
             {
-                "request": request,
                 "current_user": user,
                 "error": "کسب‌وکار یافت نشد",
                 "version": __version__,
@@ -258,9 +266,9 @@ def business_detail(request: Request, business_id: uuid.UUID, db: DbDep):
             status_code=404,
         )
     return templates.TemplateResponse(
+        request,
         "business_detail.html",
         {
-            "request": request,
             "current_user": user,
             "business": business,
             "version": __version__,
@@ -295,9 +303,9 @@ def products_page(
         db, business_id=business_id, state=parsed_state, q=q
     )
     return templates.TemplateResponse(
+        request,
         "products.html",
         {
-            "request": request,
             "current_user": user,
             "business": business,
             "products": products,
@@ -308,9 +316,15 @@ def products_page(
     )
 
 
-@router.get("/businesses/{business_id}/products/{product_id}", response_class=HTMLResponse)
+@router.get(
+    "/businesses/{business_id}/products/{product_id}",
+    response_class=HTMLResponse,
+)
 def product_detail_page(
-    request: Request, business_id: uuid.UUID, product_id: uuid.UUID, db: DbDep
+    request: Request,
+    business_id: uuid.UUID,
+    product_id: uuid.UUID,
+    db: DbDep,
 ):
     user = _current_user_from_cookie(request, db)
     if not user:
@@ -330,9 +344,9 @@ def product_detail_page(
     if not product:
         return HTMLResponse("Product not found", status_code=404)
     return templates.TemplateResponse(
+        request,
         "product_detail.html",
         {
-            "request": request,
             "current_user": user,
             "business": business,
             "product": product,
@@ -344,7 +358,10 @@ def product_detail_page(
 # --- HTMX partials -----------------------------------------------------------
 
 
-@router.get("/businesses/{business_id}/sync-jobs/partial", response_class=HTMLResponse)
+@router.get(
+    "/businesses/{business_id}/sync-jobs/partial",
+    response_class=HTMLResponse,
+)
 def sync_jobs_partial(request: Request, business_id: uuid.UUID, db: DbDep):
     import html as html_lib
 
@@ -352,7 +369,9 @@ def sync_jobs_partial(request: Request, business_id: uuid.UUID, db: DbDep):
     if not user:
         return HTMLResponse("", status_code=401)
     try:
-        biz_svc.require_business_access(db, user=user, business_id=business_id)
+        biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
     except Exception:
         return HTMLResponse("", status_code=404)
     jobs = db.scalars(
@@ -377,15 +396,22 @@ def sync_jobs_partial(request: Request, business_id: uuid.UUID, db: DbDep):
     return HTMLResponse(html)
 
 
-@router.get("/businesses/{business_id}/notifications/partial", response_class=HTMLResponse)
-def notifications_partial(request: Request, business_id: uuid.UUID, db: DbDep):
+@router.get(
+    "/businesses/{business_id}/notifications/partial",
+    response_class=HTMLResponse,
+)
+def notifications_partial(
+    request: Request, business_id: uuid.UUID, db: DbDep
+):
     import html as html_lib
 
     user = _current_user_from_cookie(request, db)
     if not user:
         return HTMLResponse("", status_code=401)
     try:
-        biz_svc.require_business_access(db, user=user, business_id=business_id)
+        biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
     except Exception:
         return HTMLResponse("", status_code=404)
     notifs = db.scalars(
@@ -428,7 +454,9 @@ def publications_partial(
     if not user:
         return HTMLResponse("", status_code=401)
     try:
-        biz_svc.require_business_access(db, user=user, business_id=business_id)
+        biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
     except Exception:
         return HTMLResponse("", status_code=404)
     stmt = select(models.Publication).where(
