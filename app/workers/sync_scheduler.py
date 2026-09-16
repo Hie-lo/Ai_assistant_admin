@@ -10,6 +10,7 @@ from app.application import sync_jobs
 from app.domain import enums
 from app.infrastructure.db import models
 from app.infrastructure.db.session import get_session_factory
+from app.workers.sync_tasks import run_sync_job
 
 
 @shared_task(name="sync.dispatch_due_sources")
@@ -17,6 +18,7 @@ def dispatch_due_sources() -> dict[str, int]:
     db = get_session_factory()()
     created = 0
     coalesced = 0
+    dispatch_ids: list[str] = []
     try:
         now = datetime.now(UTC)
         sources = db.scalars(
@@ -52,13 +54,14 @@ def dispatch_due_sources() -> dict[str, int]:
             )
             if was_created:
                 created += 1
+                dispatch_ids.append(str(job.sync_id))
             else:
                 coalesced += 1
-            # Prevent every beat tick from creating a new request while the
-            # job is queued; the authoritative last_sync_at is updated by the
-            # completed import, not by dispatch.
-            _ = job
         db.commit()
+        # Dispatch only after commit: workers must never observe an
+        # uncommitted SyncJob and report NOT_FOUND.
+        for sync_id in dispatch_ids:
+            run_sync_job.delay(sync_id)
         return {"created": created, "coalesced": coalesced}
     finally:
         db.close()
