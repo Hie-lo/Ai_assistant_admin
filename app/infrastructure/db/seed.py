@@ -52,19 +52,66 @@ STARTER_PLAN: dict[str, object] = {
 
 
 #: Phase 4: default AI output definitions (AI spec section 2 example keys).
+#: Lightweight prompts per user requirement, template-consistent
 AI_DEFINITION_SEED: list[dict[str, object]] = [
     {
         "key": "ai_description",
         "version": 1,
-        "display_name": "Product description",
+        "display_name": "توضیح کوتاه محصول",
         "prompt_template": (
-            "Write a short, natural Persian description for this product "
-            "using ONLY the provided facts:\n"
-            "Name: {name}\nCategory: {category}\nSource description: {description}\n"
-            "Price: {price} {currency}\nReturn only the output text."
+            "توضیح کوتاه فارسی (1-2 جمله) برای: {name} | {category} | {attr.Brand} {attr.Model} | CPU:{attr.CPU} RAM:{attr.Ram} | {description}\n"
+            "فقط توضیح، بدون قیمت/موجودی."
         ),
-        "input_fields": ["name", "category", "description", "price", "currency"],
-        "max_output_length": 800,
+        "input_fields": ["name", "category", "description", "attr.Brand", "attr.Model", "attr.CPU", "attr.Ram"],
+        "max_output_length": 300,
+        "provider_policy": None,
+        "cost_credits": 1,
+        "retry_policy": "transient:3",
+        "allowed_contexts": None,
+        "active": True,
+    },
+    {
+        "key": "ai_features",
+        "version": 1,
+        "display_name": "نقاط قوت",
+        "prompt_template": (
+            "3-5 نقطه قوت برای: {name} | {attr.Brand} {attr.Model} | {attr.CPU} {attr.Ram} {attr.Hard} | {description}\n"
+            "فرمت: هر نقطه با 🔹 شروع، فارسی کوتاه."
+        ),
+        "input_fields": ["name", "description", "attr.Brand", "attr.Model", "attr.CPU", "attr.Ram", "attr.Hard", "attr.Weight", "attr.Battery life"],
+        "max_output_length": 500,
+        "provider_policy": None,
+        "cost_credits": 1,
+        "retry_policy": "transient:3",
+        "allowed_contexts": None,
+        "active": True,
+    },
+    {
+        "key": "ai_games",
+        "version": 1,
+        "display_name": "بازی‌های قابل اجرا",
+        "prompt_template": (
+            "بازی‌های قابل اجرا با: {attr.CPU} | {attr.GPU} | {attr.Ram}\n"
+            "فقط نام بازی‌ها با | جدا، مثل: Counter 1.6 | GTA V"
+        ),
+        "input_fields": ["attr.CPU", "attr.GPU", "attr.Ram"],
+        "max_output_length": 200,
+        "provider_policy": None,
+        "cost_credits": 1,
+        "retry_policy": "transient:3",
+        "allowed_contexts": None,
+        "active": True,
+    },
+    {
+        "key": "ai_software",
+        "version": 1,
+        "display_name": "نرم‌افزارهای قابل اجرا",
+        "prompt_template": (
+            "نرم‌افزارهای قابل اجرا با: {attr.CPU} | {attr.Ram} | {name}\n"
+            "فقط نام نرم‌افزارها با | جدا، مثل: فوتوشاپ | آفیس | وب گردی"
+        ),
+        "input_fields": ["attr.CPU", "attr.Ram", "name"],
+        "max_output_length": 200,
         "provider_policy": None,
         "cost_credits": 1,
         "retry_policy": "transient:3",
@@ -74,13 +121,29 @@ AI_DEFINITION_SEED: list[dict[str, object]] = [
     {
         "key": "ai_short_title",
         "version": 1,
-        "display_name": "Short title",
+        "display_name": "عنوان کوتاه",
         "prompt_template": (
-            "Write a short Persian title (max 80 chars) for this product:\n"
-            "Name: {name}\nCategory: {category}\nReturn only the title."
+            "عنوان کوتاه (max 60 chars) برای: {name} | {attr.Brand} {attr.Model}\n"
+            "فقط عنوان."
         ),
-        "input_fields": ["name", "category"],
-        "max_output_length": 120,
+        "input_fields": ["name", "attr.Brand", "attr.Model"],
+        "max_output_length": 100,
+        "provider_policy": None,
+        "cost_credits": 1,
+        "retry_policy": "transient:3",
+        "allowed_contexts": None,
+        "active": True,
+    },
+    {
+        "key": "ai_hashtags",
+        "version": 1,
+        "display_name": "هشتگ‌ها",
+        "prompt_template": (
+            "هشتگ فارسی/انگلیسی برای: {name} | {category} | {attr.Brand}\n"
+            "فرمت: #Brand #Model #Category"
+        ),
+        "input_fields": ["name", "category", "attr.Brand", "attr.Model"],
+        "max_output_length": 150,
         "provider_policy": None,
         "cost_credits": 1,
         "retry_policy": "transient:3",
@@ -92,18 +155,44 @@ AI_DEFINITION_SEED: list[dict[str, object]] = [
 DEFAULT_PRESET_NAME = "Default preset"
 
 #: Phase 4: default preset block list (platform-neutral, allowlisted tokens).
+#: Template matching user's example: laptop with Brand, Model, CPU, RAM, etc.
 DEFAULT_PRESET_BLOCKS: list[dict[str, object]] = [
-    {"id": "title", "type": "PRODUCT_FIELD", "ownership": "SYSTEM_MANAGED",
-     "payload": {"field": "name"}},
-    {"id": "sep1", "type": "SEPARATOR", "ownership": "STATIC", "payload": {"text": "—"}},
-    {"id": "price", "type": "STATIC_TEXT", "ownership": "SYSTEM_MANAGED",
-     "payload": {"text": "قیمت: {price} {currency}"}},
-    {"id": "stock", "type": "STATIC_TEXT", "ownership": "SYSTEM_MANAGED",
-     "payload": {"text": "موجودی: {stock}"}},
+    {"id": "title", "type": "STATIC_TEXT", "ownership": "SYSTEM_MANAGED",
+     "payload": {"text": "💻 {attr.Brand} {name}"}},
     {"id": "ai_desc", "type": "AI_OUTPUT", "ownership": "CUSTOMER_MANAGED",
      "payload": {"key": "ai_description"}},
-    {"id": "desc", "type": "PRODUCT_FIELD", "ownership": "SYSTEM_MANAGED",
-     "payload": {"field": "description"}},
+    {"id": "grade", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
+     "payload": {"key": "Grade", "display_name": "⭐️"}},
+    {"id": "cpu", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
+     "payload": {"key": "CPU", "display_name": "🧠CPU"}},
+    {"id": "ram", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
+     "payload": {"key": "Ram", "display_name": "🧩RAM"}},
+    {"id": "hard", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
+     "payload": {"key": "Hard", "display_name": "💾HARD"}},
+    {"id": "gpu", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
+     "payload": {"key": "GPU", "display_name": "🎮GPU"}},
+    {"id": "resolution", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
+     "payload": {"key": "Resolution", "display_name": "📐Screen"}},
+    {"id": "weight", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
+     "payload": {"key": "Weight", "display_name": "✔️Weight"}},
+    {"id": "battery", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
+     "payload": {"key": "Battery life", "display_name": "🔋Battery Life"}},
+    {"id": "sep_features", "type": "SEPARATOR", "ownership": "STATIC",
+     "payload": {"text": "✨ نقاط قوت"}},
+    {"id": "ai_features", "type": "AI_OUTPUT", "ownership": "CUSTOMER_MANAGED",
+     "payload": {"key": "ai_features"}},
+    {"id": "sep_games", "type": "SEPARATOR", "ownership": "STATIC",
+     "payload": {"text": "🎮⚙️ بازی ها و نرم افزار های قابل اجرا:"}},
+    {"id": "ai_games", "type": "AI_OUTPUT", "ownership": "CUSTOMER_MANAGED",
+     "payload": {"key": "ai_games"}},
+    {"id": "ai_software", "type": "AI_OUTPUT", "ownership": "CUSTOMER_MANAGED",
+     "payload": {"key": "ai_software"}},
+    {"id": "price", "type": "STATIC_TEXT", "ownership": "SYSTEM_MANAGED",
+     "payload": {"text": "💰 قیمت: {price} تومان"}},
+    {"id": "contact", "type": "STATIC_TEXT", "ownership": "CUSTOMER_MANAGED",
+     "payload": {"text": "📞 @Nick_Bri | 09102807430"}},
+    {"id": "warranty", "type": "STATIC_TEXT", "ownership": "STATIC",
+     "payload": {"text": "🎁 یکماه گارانتی سخت افزاری مکتوب به همراه فاکتور معتبر | 💳 امکان خرید اقساطی با یک سوم پیش پرداخت"}},
     {"id": "tags", "type": "HASHTAG_SET", "ownership": "CUSTOMER_MANAGED",
      "payload": {}},
 ]

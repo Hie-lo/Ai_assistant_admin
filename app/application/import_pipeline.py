@@ -547,12 +547,61 @@ def _upsert_product(
     ):
         product.lifecycle_state = enums.ProductLifecycle.ACTIVE.value
 
+    # Customer/AI description priority: if product has manual description edit or AI-approved description, don't overwrite from sheet
+    # This implements user requirement: "بعد از اضافه کردن توضیحات توسط مشتری یا ai اون توضیحات اولویت پیدا میکنن نسبت به شیت"
+    has_manual_description = False
+    has_ai_description = False
+    try:
+        # Check for manual description edit in versions
+        manual_versions = db.scalars(
+            select(models.ProductVersion).where(
+                models.ProductVersion.product_id == product.product_id,
+                models.ProductVersion.change_categories.contains(["MANUAL_EDIT_DESCRIPTION"]),
+            )
+        ).first()
+        if manual_versions is not None:
+            has_manual_description = True
+    except Exception:
+        # contains might not work on all DBs, fallback to checking all versions
+        try:
+            all_versions = db.scalars(
+                select(models.ProductVersion).where(
+                    models.ProductVersion.product_id == product.product_id
+                )
+            ).all()
+            for v in all_versions:
+                if "MANUAL_EDIT_DESCRIPTION" in (v.change_categories or []):
+                    has_manual_description = True
+                    break
+        except Exception:
+            pass
+
+    try:
+        # Check for AI-approved description artifact
+        from app.domain import enums as domain_enums
+
+        ai_artifact = db.scalars(
+            select(models.AIOutputArtifact).where(
+                models.AIOutputArtifact.product_id == product.product_id,
+                models.AIOutputArtifact.output_definition_key == "ai_description",
+                models.AIOutputArtifact.status == domain_enums.AIArtifactStatus.APPROVED.value,
+            )
+        ).first()
+        if ai_artifact is not None:
+            has_ai_description = True
+    except Exception:
+        pass
+
     changed_fields: dict = {}
     categories: list[str] = []
     risks: list[enums.ChangeRisk] = []
     for cf in _CORE_WRITE_FIELDS:
         # Unmapped columns never touch the product (absent from ``core``).
         if cf not in core:
+            continue
+        # Customer/AI description priority: don't overwrite description if manually edited or AI-approved
+        if cf == "description" and (has_manual_description or has_ai_description):
+            # Keep existing description, don't overwrite from sheet
             continue
         new_v = core.get(cf)
         # Empty source values never clear identity fields or currency in V1

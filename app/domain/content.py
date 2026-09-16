@@ -27,7 +27,8 @@ from app.domain.enums import BlockOwnership, BlockType
 
 #: Allowlisted token grammar: {product_field}, {attr.<key>}, {ai_<key>}
 #: (AI output tokens are the registered definition key, AI spec section 14).
-TOKEN_RE = re.compile(r"\{([a-z0-9_]+)(?:\.([a-z0-9_]+))?\}")
+#: attr keys can contain spaces, capitals, etc. (real-world sheet columns like "Battery life")
+TOKEN_RE = re.compile(r"\{([a-z0-9_]+)(?:\.([^}]+))?\}")
 
 #: Product-field tokens available to every preset.
 PRODUCT_FIELD_TOKENS: frozenset[str] = frozenset(

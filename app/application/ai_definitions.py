@@ -23,28 +23,72 @@ from app.infrastructure.db.models import AIOutputDefinition, User
 _KEY_RE = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
 
 #: Default seed definitions (AI spec section 2 example keys).
+#: Lightweight prompts per user requirement: minimal tokens, template-consistent output
 SEED_DEFINITIONS: list[dict] = [
     {
         "key": "ai_description",
-        "display_name": "توضیح کالا",
+        "display_name": "توضیح کوتاه محصول",
         "prompt_template": (
-            "برای کالای زیر یک توضیح کوتاه و طبیعی به فارسی بنویس.\n"
-            "نام: {name}\nدسته: {category}\nتوضیح منبع: {description}\nقیمت: {price} {currency}\n"
-            "فقط متن خروجی را برگردان."
+            "توضیح کوتاه فارسی (1-2 جمله) برای: {name} | {category} | {attributes.Brand} {attributes.Model} | CPU:{attributes.CPU} RAM:{attributes.Ram} | {description}\n"
+            "فقط توضیح، بدون قیمت/موجودی."
         ),
-        "input_fields": ["name", "category", "description", "price", "currency"],
-        "max_output_length": 800,
+        "input_fields": ["name", "category", "description", "attributes.Brand", "attributes.Model", "attributes.CPU", "attributes.Ram"],
+        "max_output_length": 300,
+        "cost_credits": 1,
+    },
+    {
+        "key": "ai_features",
+        "display_name": "نقاط قوت",
+        "prompt_template": (
+            "3-5 نقطه قوت برای: {name} | {attributes.Brand} {attributes.Model} | {attributes.CPU} {attributes.Ram} {attributes.Hard} | {description}\n"
+            "فرمت: هر نقطه با 🔹 شروع، فارسی، کوتاه."
+        ),
+        "input_fields": ["name", "description", "attributes.Brand", "attributes.Model", "attributes.CPU", "attributes.Ram", "attributes.Hard", "attributes.Weight", "attributes.Battery life"],
+        "max_output_length": 500,
+        "cost_credits": 1,
+    },
+    {
+        "key": "ai_games",
+        "display_name": "بازی‌های قابل اجرا",
+        "prompt_template": (
+            "بازی‌های قابل اجرا با: {attributes.CPU} | {attributes.GPU} | {attributes.Ram}\n"
+            "فقط نام بازی‌ها، با | جدا، مثل: Counter 1.6 | GTA V"
+        ),
+        "input_fields": ["attributes.CPU", "attributes.GPU", "attributes.Ram"],
+        "max_output_length": 200,
+        "cost_credits": 1,
+    },
+    {
+        "key": "ai_software",
+        "display_name": "نرم‌افزارهای قابل اجرا",
+        "prompt_template": (
+            "نرم‌افزارهای قابل اجرا با: {attributes.CPU} | {attributes.Ram} | {name}\n"
+            "فقط نام نرم‌افزارها، با | جدا، مثل: فوتوشاپ | آفیس | وب گردی"
+        ),
+        "input_fields": ["attributes.CPU", "attributes.Ram", "name"],
+        "max_output_length": 200,
         "cost_credits": 1,
     },
     {
         "key": "ai_short_title",
         "display_name": "عنوان کوتاه",
         "prompt_template": (
-            "برای کالای زیر یک عنوان کوتاه (حداکثر 80 کاراکتر) به فارسی بنویس.\n"
-            "نام: {name}\nدسته: {category}\nفقط عنوان را برگردان."
+            "عنوان کوتاه (حداکثر 60 کاراکتر) برای: {name} | {attributes.Brand} {attributes.Model}\n"
+            "فقط عنوان."
         ),
-        "input_fields": ["name", "category"],
-        "max_output_length": 120,
+        "input_fields": ["name", "attributes.Brand", "attributes.Model"],
+        "max_output_length": 100,
+        "cost_credits": 1,
+    },
+    {
+        "key": "ai_hashtags",
+        "display_name": "هشتگ‌ها",
+        "prompt_template": (
+            "هشتگ فارسی/انگلیسی برای: {name} | {category} | {attributes.Brand}\n"
+            "فرمت: #Brand #Model #Category"
+        ),
+        "input_fields": ["name", "category", "attributes.Brand", "attributes.Model"],
+        "max_output_length": 150,
         "cost_credits": 1,
     },
 ]
