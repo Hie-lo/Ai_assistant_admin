@@ -167,6 +167,7 @@ class SourceStatus(str_enum):
     ACTIVE = "ACTIVE"
     PAUSED = "PAUSED"
     ERROR = "ERROR"
+    ARCHIVED = "ARCHIVED"
 
 
 class MappingStatus(str_enum):

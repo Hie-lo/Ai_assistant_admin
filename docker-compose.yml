@@ -11,6 +11,10 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: ai_assistant
+      # NOTE: POSTGRES_PASSWORD is only used on first volume init.
+      # If you changed password in DB or have auth issues after rebuild:
+      # docker compose exec postgres psql -U postgres -d ai_assistant -c "ALTER USER postgres WITH PASSWORD 'postgres';"
+      # Or if volume has old password: docker volume rm ai-assistant-admin_pgdata && up + alembic upgrade head
     ports:
       - "5432:5432"
     volumes:

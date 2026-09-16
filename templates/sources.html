@@ -1,7 +1,15 @@
 {% extends "base.html" %}
 {% block title %}منابع — {{ business.business_name }}{% endblock %}
 {% block content %}
-<h1>منابع — {{ business.business_name }}</h1>
+<div class="hero-section">
+    <h1>📦 منابع محصولات — {{ business.business_name }}</h1>
+    <p>محصولات خود را از Excel یا Google Sheets وارد کنید. سیستم هوشمند ما ستون‌ها را خودکار تشخیص می‌دهد — نیازی به تنظیم دستی نیست!</p>
+    <div class="hero-stats">
+        <div class="hero-stat"><strong>{{ sources|length }}</strong><span>منبع فعال</span></div>
+        <div class="hero-stat"><strong>Excel + Google Sheets</strong><span>پشتیبانی</span></div>
+        <div class="hero-stat"><strong>خودکار</strong><span>شناسایی ستون</span></div>
+    </div>
+</div>
 
 {% if warning %}
 <div class="flash flash-error" style="white-space:pre-wrap">{{ warning }}</div>
@@ -10,53 +18,111 @@
 <div class="flash flash-error">{{ error }}</div>
 {% endif %}
 
-<div class="card" style="margin-bottom:2rem;">
-    <h3>ساخت منبع جدید</h3>
-    <p class="muted">برای Excel فایل را بعداً در صفحه جزئیات منبع آپلود کنید. برای Google Sheets لینک شیت را وارد کنید.</p>
-    <form method="post" action="/web/businesses/{{ business.business_id }}/sources" class="form">
-        <div class="form-group">
-            <label>نام منبع</label>
-            <input type="text" name="name" required placeholder="مثلا: لیست اصلی محصولات">
+<div class="grid-2" style="margin-bottom:2rem;">
+    <div class="card" style="border-right:4px solid var(--primary);">
+        <h3 style="margin-bottom:0.75rem;">✨ ساخت منبع جدید — 30 ثانیه!</h3>
+        <p class="muted" style="font-size:0.9rem; margin-bottom:1rem;">
+            برای Excel: فقط نام بگذارید، فایل را بعداً آپلود می‌کنید.<br>
+            برای Google Sheets: لینک کامل شیت را Paste کنید — ID خودکار استخراج می‌شود.
+        </p>
+        <form method="post" action="/web/businesses/{{ business.business_id }}/sources" class="form">
+            <div class="form-group">
+                <label>نام منبع *</label>
+                <input type="text" name="name" required placeholder="مثلا: لیست اصلی محصولات لپ‌تاپ">
+            </div>
+            <div class="form-group">
+                <label>نوع منبع *</label>
+                <select name="kind" required id="kindSelect" onchange="toggleFields()">
+                    <option value="EXCEL_UPLOAD">📊 Excel / XLSX آپلود — ساده و سریع</option>
+                    <option value="GOOGLE_SHEETS">📗 Google Sheets — لینک شیت</option>
+                </select>
+            </div>
+            <div class="form-group" id="externalRefGroup">
+                <label>🔗 لینک Google Sheets (فقط برای نوع Google Sheets)</label>
+                <input type="text" name="external_ref" placeholder="https://docs.google.com/spreadsheets/d/1hHn.../edit">
+                <span class="muted" style="font-size:0.75rem;">لینک کامل را Paste کنید، ID خودکار استخراج می‌شود. شیت را روی Anyone with the link → Viewer بگذارید.</span>
+            </div>
+            <div class="form-group">
+                <label>📄 نام شیت (اختیاری — پیش‌فرض اولین شیت)</label>
+                <input type="text" name="sheet_name" placeholder="Sheet1 یا خالی برای اولین شیت">
+            </div>
+            <button type="submit" class="btn btn-gradient" style="width:100%;">🚀 ساخت منبع و شروع خودکار</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3 style="margin-bottom:0.75rem;">💡 راهنمای سریع</h3>
+        <div style="font-size:0.9rem; line-height:1.8;" class="muted">
+            <strong>برای Google Sheets:</strong>
+            <ol style="padding-right:1.2rem; margin-top:0.5rem;">
+                <li>شیت را باز کنید → Share → General access → Anyone with the link → Viewer</li>
+                <li>لینک را کپی و بالا Paste کنید</li>
+                <li>ساخت منبع → دکمه «شناسایی خودکار» → Import یک‌کلیکی!</li>
+            </ol>
+            <div style="margin-top:1rem; padding:0.75rem; background:#f0fdf4; border-radius:0.5rem; border:1px solid #bbf7d0;">
+                <strong>✅ فایل متفاوت هم باشد مشکلی نیست!</strong><br>
+                طبق دستور کار، هر فایلی با هر ترتیبی کار می‌کند. ستون‌های اضافی به عنوان ویژگی سفارشی حفظ می‌شوند.
+            </div>
+            <div style="margin-top:1rem;">
+                <strong>📥 نمونه فایل‌ها:</strong><br>
+                <a href="/static/samples/products_sample_fa.xlsx" target="_blank" class="btn btn-xs btn-outline" style="margin:0.2rem;">فارسی</a>
+                <a href="/static/samples/products_sample_en.xlsx" target="_blank" class="btn btn-xs btn-outline" style="margin:0.2rem;">انگلیسی</a>
+                <a href="/static/samples/products_sample_mixed_custom.xlsx" target="_blank" class="btn btn-xs btn-outline" style="margin:0.2rem;">سفارشی</a>
+            </div>
         </div>
-        <div class="form-group">
-            <label>نوع منبع</label>
-            <select name="kind" required>
-                <option value="EXCEL_UPLOAD">Excel / XLSX آپلود</option>
-                <option value="GOOGLE_SHEETS">Google Sheets</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label>لینک Google Sheets (فقط برای نوع Google Sheets)</label>
-            <input type="text" name="external_ref" placeholder="https://docs.google.com/spreadsheets/d/...">
-        </div>
-        <div class="form-group">
-            <label>نام شیت (اختیاری)</label>
-            <input type="text" name="sheet_name" placeholder="Sheet1">
-        </div>
-        <button type="submit" class="btn btn-primary">ساخت منبع</button>
-    </form>
+    </div>
 </div>
 
-<h2>لیست منابع</h2>
+<h2 style="margin-bottom:1rem;">📋 لیست منابع ({{ sources|length }})</h2>
 {% if sources %}
-<table class="table">
-    <tr><th>نام</th><th>نوع</th><th>وضعیت</th><th>آخرین همگام‌سازی</th><th>عملیات</th></tr>
-    {% for s in sources %}
-    <tr>
-        <td>{{ s.name }}</td>
-        <td><span class="badge">{{ s.kind }}</span></td>
-        <td>{{ s.status }}</td>
-        <td class="muted">{{ s.last_sync_at or '—' }}</td>
-        <td><a href="/web/businesses/{{ business.business_id }}/sources/{{ s.source_id }}" class="btn btn-sm">مدیریت</a></td>
-    </tr>
-    {% endfor %}
-</table>
+<div class="card" style="padding:0; overflow:hidden;">
+    <div style="overflow-x:auto;">
+        <table class="table" style="box-shadow:none; border:none; border-radius:0;">
+            <thead><tr><th>نام</th><th>نوع</th><th>وضعیت</th><th>آخرین همگام‌سازی</th><th>عملیات</th></tr></thead>
+            <tbody>
+            {% for s in sources %}
+            <tr>
+                <td><strong>{{ s.name }}</strong><br><span class="muted" style="font-size:0.75rem;">{{ s.external_ref[:40] if s.external_ref else '' }}{% if s.external_ref and s.external_ref|length>40 %}…{% endif %}</span></td>
+                <td><span class="badge badge-{{ s.status }}">{{ s.kind }}</span></td>
+                <td><span class="badge badge-{{ s.status }}">{{ s.status }}</span></td>
+                <td class="muted" style="font-size:0.85rem;">{{ s.last_sync_at.strftime('%m/%d %H:%M') if s.last_sync_at else '—' }}</td>
+                <td>
+                    <div style="display:flex; gap:0.3rem; flex-wrap:wrap;">
+                        <a href="/web/businesses/{{ business.business_id }}/sources/{{ s.source_id }}" class="btn btn-xs btn-primary">مدیریت</a>
+                        <form method="post" action="/web/businesses/{{ business.business_id }}/sources/{{ s.source_id }}/delete" style="display:inline;" onsubmit="return confirm('آیا مطمئنید؟ اگر Import داشته باشد آرشیو می‌شود، وگرنه کامل حذف می‌شود.');">
+                            <button type="submit" class="btn btn-xs btn-ghost" style="color:var(--error);">🗑️ حذف</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
 {% else %}
-<p class="muted">هنوز منبعی نساخته‌اید. از فرم بالا شروع کنید.</p>
+<div class="empty-state">
+    <div class="icon">📭</div>
+    <h3>هنوز منبعی نساخته‌اید</h3>
+    <p>از فرم بالا شروع کنید — 30 ثانیه تا اولین Import!</p>
+</div>
 {% endif %}
 
-<div style="margin-top:2rem;">
-    <a href="/web/businesses/{{ business.business_id }}" class="btn">بازگشت به مدیریت کسب‌وکار</a>
-    <a href="/web/businesses/{{ business.business_id }}/products" class="btn">محصولات</a>
+<div style="margin-top:2rem; display:flex; gap:0.75rem; flex-wrap:wrap;">
+    <a href="/web/businesses/{{ business.business_id }}" class="btn btn-ghost">← بازگشت به کسب‌وکار</a>
+    <a href="/web/businesses/{{ business.business_id }}/products" class="btn btn-outline">📦 محصولات</a>
 </div>
+
+<script>
+function toggleFields(){
+    const kind = document.getElementById('kindSelect').value;
+    const group = document.getElementById('externalRefGroup');
+    if(kind === 'GOOGLE_SHEETS'){
+        group.style.display = 'block';
+    } else {
+        group.style.display = 'none';
+    }
+}
+toggleFields();
+</script>
 {% endblock %}

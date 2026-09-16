@@ -2,25 +2,28 @@
 {% block title %}نگاشت ستون‌ها — {{ source.name }}{% endblock %}
 {% block content %}
 <div class="hero-section">
-    <h1>✨ نگاشت ستون‌ها — {{ source.name }}</h1>
-    <p>ستون‌های منبع را به فیلدهای استاندارد سیستم نگاشت کنید. سیستم پیشنهاد هوشمند بر اساس نام ستون ارائه می‌دهد، شما می‌توانید آن را ویرایش کنید.</p>
+    <h1>✨ ویرایش نگاشت — {{ source.name }}</h1>
+    <p>ستون‌های شیت شما به صورت هوشمند شناسایی شدند. فقط مواردی که اشتباه است را اصلاح کنید — بقیه خودکار فعال هستند!</p>
     <div class="hero-stats">
         <div class="hero-stat"><strong>{{ headers|length }}</strong><span>ستون کشف شده</span></div>
-        <div class="hero-stat"><strong>{{ source.kind }}</strong><span>نوع منبع</span></div>
+        <div class="hero-stat"><strong>{{ suggested|length }}</strong><span>در ویرایشگر</span></div>
         <div class="hero-stat"><strong>{{ business.business_name }}</strong><span>کسب‌وکار</span></div>
     </div>
 </div>
 
 <div class="steps">
     <div class="step done"><span class="step-number">1</span><span class="step-title">کشف ستون</span><span class="step-desc">خواندن ساختار</span></div>
-    <div class="step active"><span class="step-number">2</span><span class="step-title">پیشنهاد نگاشت</span><span class="step-desc">هوشمند + ویرایش</span></div>
-    <div class="step"><span class="step-number">3</span><span class="step-title">اعتبارسنجی</span><span class="step-desc">بررسی الزامات</span></div>
-    <div class="step"><span class="step-number">4</span><span class="step-title">پیش‌نمایش</span><span class="step-desc">Diff و تست</span></div>
-    <div class="step"><span class="step-number">5</span><span class="step-title">فعال‌سازی</span><span class="step-desc">اعمال نگاشت</span></div>
+    <div class="step active"><span class="step-number">2</span><span class="step-title">ویرایش نگاشت</span><span class="step-desc">اصلاح سریع</span></div>
+    <div class="step"><span class="step-number">3</span><span class="step-title">ذخیره خودکار</span><span class="step-desc">فعال‌سازی</span></div>
+    <div class="step"><span class="step-number">4</span><span class="step-title">Import</span><span class="step-desc">محصولات</span></div>
 </div>
 
 {% if error %}
 <div class="flash flash-error">⚠️ {{ error }}</div>
+{% endif %}
+
+{% if existing_mapping %}
+<div class="flash flash-success">✅ نگاشت فعال فعلی: v{{ existing_mapping.version }} با {{ existing_mapping.entries|length }} ستون — در جدول زیر مقادیر فعلی شما حفظ شده، فقط مواردی که می‌خواهید را تغییر دهید.</div>
 {% endif %}
 
 <div class="grid-2" style="margin-bottom:1.5rem;">
@@ -36,12 +39,13 @@
         {% endif %}
     </div>
     <div class="card">
-        <h3 style="margin-bottom:0.75rem;">💡 راهنما</h3>
-        <ul style="padding-right:1.25rem; color:var(--muted); font-size:0.9rem; line-height:1.8;">
-            <li><strong>نام محصول</strong> الزامی است — حداقل یک ستون باید به <code>name</code> نگاشت شود.</li>
-            <li>ستون‌هایی که نیاز ندارید را به <em>غیرفعال</em> بگذارید یا به <code>فیلد سفارشی</code> تبدیل کنید.</li>
-            <li>فیلدهای هسته: name, price, stock, sku, barcode, category, description, image1..3, external_id</li>
-            <li>پس از ذخیره، نگاشت در وضعیت DRAFT می‌ماند تا فعال شود.</li>
+        <h3 style="margin-bottom:0.75rem;">💡 راهنمای سریع — چطور ویرایش کنم؟</h3>
+        <ul style="padding-right:1.25rem; color:var(--muted); font-size:0.9rem; line-height:1.9;">
+            <li><strong>نام محصول</strong> الزامی — حداقل یک ستون باید <code>name</code> باشد (سیستم خودکار Brand+Model را هم به نام تبدیل می‌کند)</li>
+            <li><strong>قیمت:</strong> اگر ستون شما «Sale Price» یا «قیمت فروش» است، آن را به <code>price</code> نگاشت کنید</li>
+            <li><strong>موجودی:</strong> اگر «Status» دارید (موجود/ناموجود)، آن را به <code>stock</code> نگاشت کنید — سیستم «موجود در فروشگاه» را به 10 تبدیل می‌کند</li>
+            <li><strong>سفارشی:</strong> ستون‌هایی مثل CPU, RAM, GPU خودکار به عنوان ویژگی سفارشی حفظ می‌شوند — نیازی به غیرفعال کردن نیست!</li>
+            <li>پس از ذخیره، نگاشت <strong>خودکار فعال</strong> می‌شود و می‌توانید مستقیم Import کنید.</li>
         </ul>
     </div>
 </div>
@@ -50,54 +54,53 @@
     <input type="hidden" name="entries_json" id="entriesJson">
     <div class="card" style="padding:0; overflow:hidden;">
         <div style="padding:1.25rem 1.5rem; background:#f8fafc; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
-            <h3>🛠️ ویرایش نگاشت ({{ suggested|length }} ستون)</h3>
+            <h3>🛠️ ویرایش نگاشت ({{ suggested|length }} ستون) — فقط موارد اشتباه را تغییر دهید</h3>
             <div style="display:flex; gap:0.5rem;">
-                <button type="button" class="btn btn-sm btn-outline" onclick="autoMap()">✨ پیشنهاد مجدد</button>
-                <button type="button" class="btn btn-sm btn-ghost" onclick="disableAllCustom()">غیرفعال‌سازی سفارشی‌ها</button>
+                <button type="button" class="btn btn-sm btn-outline" onclick="resetToSuggested()">🔄 بازنشانی به پیشنهاد هوشمند</button>
             </div>
         </div>
         <div style="overflow-x:auto;">
             <table class="mapping-table" id="mappingTable">
                 <thead>
                     <tr>
-                        <th style="width:22%;">ستون منبع</th>
-                        <th style="width:18%;">فیلد استاندارد</th>
-                        <th style="width:14%;">نوع</th>
+                        <th style="width:20%;">ستون منبع</th>
+                        <th style="width:20%;">فیلد استاندارد</th>
+                        <th style="width:12%;">نوع</th>
                         <th style="width:18%;">نام نمایشی</th>
                         <th style="width:8%;">الزامی</th>
-                        <th style="width:12%;">اعتماد</th>
-                        <th style="width:8%;">عملیات</th>
+                        <th style="width:15%;">تشخیص</th>
+                        <th style="width:7%;">حذف</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for s in suggested %}
-                    <tr data-index="{{ loop.index0 }}">
+                    <tr data-index="{{ loop.index0 }}" class="{% if s.canonical_field %}row-mapped{% else %}row-custom{% endif %}">
                         <td>
                             <strong>{{ s.column }}</strong>
-                            <div class="muted" style="font-size:0.75rem; margin-top:0.2rem;">{{ s.evidence }}</div>
+                            <div class="muted" style="font-size:0.7rem; margin-top:0.2rem; max-width:180px; overflow:hidden; text-overflow:ellipsis;">{{ s.evidence }}</div>
                             <input type="hidden" class="col-column" value="{{ s.column }}">
                         </td>
                         <td>
-                            <select class="col-canonical">
-                                <option value="" {% if not s.canonical_field %}selected{% endif %}>— سفارشی / غیرفعال —</option>
-                                <option value="name" {% if s.canonical_field=='name' %}selected{% endif %}>نام محصول (name) *</option>
-                                <option value="price" {% if s.canonical_field=='price' %}selected{% endif %}>قیمت (price)</option>
-                                <option value="stock" {% if s.canonical_field=='stock' %}selected{% endif %}>موجودی (stock)</option>
-                                <option value="sku" {% if s.canonical_field=='sku' %}selected{% endif %}>کد کالا (sku)</option>
-                                <option value="barcode" {% if s.canonical_field=='barcode' %}selected{% endif %}>بارکد (barcode)</option>
-                                <option value="external_id" {% if s.canonical_field=='external_id' %}selected{% endif %}>شناسه منبع (external_id)</option>
-                                <option value="category" {% if s.canonical_field=='category' %}selected{% endif %}>دسته‌بندی (category)</option>
-                                <option value="description" {% if s.canonical_field=='description' %}selected{% endif %}>توضیحات (description)</option>
-                                <option value="currency" {% if s.canonical_field=='currency' %}selected{% endif %}>ارز (currency)</option>
-                                <option value="image1" {% if s.canonical_field=='image1' %}selected{% endif %}>تصویر ۱ (image1)</option>
-                                <option value="image2" {% if s.canonical_field=='image2' %}selected{% endif %}>تصویر ۲ (image2)</option>
-                                <option value="image3" {% if s.canonical_field=='image3' %}selected{% endif %}>تصویر ۳ (image3)</option>
+                            <select class="col-canonical" onchange="updateKind(this)">
+                                <option value="" {% if not s.canonical_field %}selected{% endif %}>✨ سفارشی (به عنوان ویژگی حفظ می‌شود)</option>
+                                <option value="name" {% if s.canonical_field=='name' %}selected{% endif %}>⭐ نام محصول (name) *</option>
+                                <option value="price" {% if s.canonical_field=='price' %}selected{% endif %}>💰 قیمت (price)</option>
+                                <option value="stock" {% if s.canonical_field=='stock' %}selected{% endif %}>📦 موجودی (stock)</option>
+                                <option value="sku" {% if s.canonical_field=='sku' %}selected{% endif %}>🔖 کد کالا (sku)</option>
+                                <option value="barcode" {% if s.canonical_field=='barcode' %}selected{% endif %}>📊 بارکد (barcode)</option>
+                                <option value="external_id" {% if s.canonical_field=='external_id' %}selected{% endif %}>🆔 شناسه منبع (external_id)</option>
+                                <option value="category" {% if s.canonical_field=='category' %}selected{% endif %}>📁 دسته‌بندی (category)</option>
+                                <option value="description" {% if s.canonical_field=='description' %}selected{% endif %}>📝 توضیحات (description)</option>
+                                <option value="currency" {% if s.canonical_field=='currency' %}selected{% endif %}>💱 ارز (currency)</option>
+                                <option value="image1" {% if s.canonical_field=='image1' %}selected{% endif %}>🖼️ تصویر ۱ (image1)</option>
+                                <option value="image2" {% if s.canonical_field=='image2' %}selected{% endif %}>🖼️ تصویر ۲ (image2)</option>
+                                <option value="image3" {% if s.canonical_field=='image3' %}selected{% endif %}>🖼️ تصویر ۳ (image3)</option>
                             </select>
                         </td>
                         <td>
                             <select class="col-kind">
-                                <option value="CORE" {% if s.field_kind=='CORE' %}selected{% endif %}>هسته</option>
-                                <option value="CUSTOM" {% if s.field_kind=='CUSTOM' %}selected{% endif %}>سفارشی</option>
+                                <option value="CORE" {% if s.field_kind=='CORE' %}selected{% endif %}>هسته (اصلی)</option>
+                                <option value="CUSTOM" {% if s.field_kind=='CUSTOM' %}selected{% endif %}>سفارشی (ویژگی)</option>
                             </select>
                         </td>
                         <td>
@@ -107,12 +110,13 @@
                             <input type="checkbox" class="col-required" {% if s.required %}checked{% endif %} style="width:18px; height:18px;">
                         </td>
                         <td>
-                            {% if s.confidence >= 0.8 %}<span class="confidence-high">{{ (s.confidence*100)|int }}% • {{ s.evidence }}</span>
-                            {% elif s.confidence >= 0.4 %}<span class="confidence-medium">{{ (s.confidence*100)|int }}%</span>
-                            {% else %}<span class="confidence-low">{{ (s.confidence*100)|int }}% • دستی</span>{% endif %}
+                            {% if s.confidence >= 0.85 %}<span class="badge badge-ACTIVE" style="font-size:0.7rem;">{{ (s.confidence*100)|int }}% • {{ s.evidence[:30] }}</span>
+                            {% elif s.confidence >= 0.6 %}<span class="badge badge-DRAFT" style="font-size:0.7rem;">{{ (s.confidence*100)|int }}% • {{ s.evidence[:25] }}</span>
+                            {% elif s.confidence > 0 %}<span class="badge badge-ARCHIVED" style="font-size:0.7rem;">{{ (s.confidence*100)|int }}% • {{ s.evidence[:20] }}</span>
+                            {% else %}<span class="badge badge-ARCHIVED" style="font-size:0.7rem;">سفارشی</span>{% endif %}
                         </td>
                         <td>
-                            <button type="button" class="btn btn-xs btn-ghost" onclick="removeRow(this)">حذف</button>
+                            <button type="button" class="btn btn-xs btn-ghost" onclick="removeRow(this)" style="color:var(--error);">✕</button>
                         </td>
                     </tr>
                     {% endfor %}
@@ -120,43 +124,90 @@
             </table>
         </div>
         <div style="padding:1rem 1.5rem; background:#f8fafc; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
-            <div class="muted" style="font-size:0.85rem;">💡 نکته: اگر فیلد تکراری انتخاب کنید، سیستم فقط اولین را نگه می‌دارد. برای سفارشی، فیلد استاندارد را خالی بگذارید.</div>
+            <div class="muted" style="font-size:0.85rem;">
+                💡 <strong>سفارشی ≠ غیرفعال!</strong> ستون‌های سفارشی به عنوان ویژگی محصول (مثل CPU: i5) حفظ می‌شوند و در صفحه محصول نمایش داده می‌شوند. فقط ستون‌هایی که حذف می‌کنید نادیده گرفته می‌شوند.
+            </div>
             <button type="button" class="btn btn-sm btn-outline" onclick="addRow()">+ افزودن ستون دستی</button>
         </div>
     </div>
 
     <div class="action-bar">
         <div class="action-bar-left">
-            <span class="muted" style="font-size:0.9rem;">پس از ذخیره، می‌توانید پیش‌نمایش بگیرید و سپس فعال کنید.</span>
+            <span class="muted" style="font-size:0.9rem;">✅ پس از ذخیره، نگاشت خودکار فعال می‌شود و می‌توانید مستقیم Import کنید — نیازی به فعال‌سازی جداگانه نیست!</span>
         </div>
         <div class="action-bar-right">
             <a href="/web/businesses/{{ business.business_id }}/sources/{{ source.source_id }}" class="btn btn-ghost">انصراف</a>
-            <button type="submit" class="btn btn-gradient">💾 ذخیره نگاشت (DRAFT)</button>
+            <button type="submit" class="btn btn-gradient">💾 ذخیره و فعال‌سازی خودکار</button>
         </div>
     </div>
 </form>
 
 <script>
+function updateKind(select){
+    const tr = select.closest('tr');
+    const kindSelect = tr.querySelector('.col-kind');
+    if(select.value === ''){
+        kindSelect.value = 'CUSTOM';
+    } else {
+        kindSelect.value = 'CORE';
+    }
+}
 function collectEntries(){
     const rows = document.querySelectorAll('#mappingTable tbody tr');
     const entries = [];
     const seenCanonical = new Set();
     rows.forEach(tr => {
         const column = tr.querySelector('.col-column')?.value?.trim();
+        if(!column) {
+            const input = tr.querySelector('.col-column');
+            // For manually added rows, column is in text input
+            const textInput = tr.querySelector('td:first-child input[type=\"text\"]');
+            if(textInput) {
+                const val = textInput.value.trim();
+                if(val) {
+                    tr.querySelector('.col-column')?.setAttribute('value', val);
+                    // Actually need to get from text input
+                    const col = val;
+                    const canonical = tr.querySelector('.col-canonical')?.value?.trim() || null;
+                    let kind = tr.querySelector('.col-kind')?.value || 'CUSTOM';
+                    const display = tr.querySelector('.col-display')?.value?.trim() || col;
+                    const required = tr.querySelector('.col-required')?.checked || false;
+                    if(!col) return;
+                    if(!canonical) kind = 'CUSTOM';
+                    if(canonical && seenCanonical.has(canonical)){
+                        kind = 'CUSTOM';
+                    }
+                    if(canonical) seenCanonical.add(canonical);
+                    let field_type = 'STRING';
+                    if(canonical==='price') field_type='PRICE';
+                    else if(canonical==='stock') field_type='STOCK';
+                    else if(canonical && canonical.startsWith('image')) field_type='MEDIA_URL';
+                    entries.push({
+                        column: col,
+                        canonical_field: canonical,
+                        field_kind: kind,
+                        field_type: field_type,
+                        display_name: display,
+                        required: required,
+                        template_exposed: false,
+                        confidence: 0.9,
+                        evidence: 'manual correction'
+                    });
+                    return;
+                }
+            }
+            return;
+        }
         const canonical = tr.querySelector('.col-canonical')?.value?.trim() || null;
         let kind = tr.querySelector('.col-kind')?.value || 'CUSTOM';
         const display = tr.querySelector('.col-display')?.value?.trim() || column;
         const required = tr.querySelector('.col-required')?.checked || false;
         if(!column) return;
-        // if canonical empty -> force CUSTOM
         if(!canonical) kind = 'CUSTOM';
-        // avoid duplicate canonical (keep first)
         if(canonical && seenCanonical.has(canonical)){
-            // turn duplicate into CUSTOM automatically
             kind = 'CUSTOM';
         }
         if(canonical) seenCanonical.add(canonical);
-        // determine field_type
         let field_type = 'STRING';
         if(canonical==='price') field_type='PRICE';
         else if(canonical==='stock') field_type='STOCK';
@@ -180,53 +231,71 @@ document.getElementById('mappingForm').addEventListener('submit', function(e){
     const hasName = entries.some(en => en.canonical_field==='name' && en.field_kind==='CORE');
     if(!hasName){
         e.preventDefault();
-        alert('حداقل یک ستون باید به فیلد name (نام محصول) نگاشت شود و الزامی باشد.');
+        alert('حداقل یک ستون باید به فیلد نام محصول (name) نگاشت شود.');
         return;
     }
     document.getElementById('entriesJson').value = JSON.stringify(entries);
 });
 function removeRow(btn){
-    btn.closest('tr').remove();
+    if(confirm('این ستون حذف شود؟ (دیگر به عنوان ویژگی هم ذخیره نمی‌شود)')){
+        btn.closest('tr').remove();
+    }
 }
 function addRow(){
     const tbody = document.querySelector('#mappingTable tbody');
     const tr = document.createElement('tr');
     tr.innerHTML = `
-        <td><input type="text" class="col-column" placeholder="نام ستون منبع" style="font-weight:600;"><div class="muted" style="font-size:0.7rem;">دستی</div></td>
         <td>
-            <select class="col-canonical">
-                <option value="">— سفارشی —</option>
-                <option value="name">نام محصول (name) *</option>
-                <option value="price">قیمت (price)</option>
-                <option value="stock">موجودی (stock)</option>
-                <option value="sku">کد کالا (sku)</option>
+            <input type="text" placeholder="نام ستون منبع" style="font-weight:600; width:100%; padding:0.5rem; border:1.5px solid var(--border); border-radius:0.4rem;">
+            <input type="hidden" class="col-column" value="">
+            <div class="muted" style="font-size:0.7rem;">دستی</div>
+        </td>
+        <td>
+            <select class="col-canonical" onchange="updateKind(this)">
+                <option value="">✨ سفارشی</option>
+                <option value="name">⭐ نام محصول *</option>
+                <option value="price">💰 قیمت</option>
+                <option value="stock">📦 موجودی</option>
+                <option value="sku">🔖 کد کالا</option>
                 <option value="barcode">بارکد</option>
-                <option value="external_id">شناسه منبع</option>
-                <option value="category">دسته‌بندی</option>
-                <option value="description">توضیحات</option>
-                <option value="currency">ارز</option>
-                <option value="image1">تصویر ۱</option>
-                <option value="image2">تصویر ۲</option>
-                <option value="image3">تصویر ۳</option>
+                <option value="external_id">🆔 شناسه منبع</option>
+                <option value="category">📁 دسته‌بندی</option>
+                <option value="description">📝 توضیحات</option>
+                <option value="currency">💱 ارز</option>
+                <option value="image1">🖼️ تصویر ۱</option>
+                <option value="image2">🖼️ تصویر ۲</option>
+                <option value="image3">🖼️ تصویر ۳</option>
             </select>
         </td>
         <td><select class="col-kind"><option value="CORE">هسته</option><option value="CUSTOM" selected>سفارشی</option></select></td>
-        <td><input type="text" class="col-display" placeholder="نام نمایشی"></td>
+        <td><input type="text" class="col-display" placeholder="نام نمایشی" style="width:100%; padding:0.5rem; border:1.5px solid var(--border); border-radius:0.4rem;"></td>
         <td style="text-align:center;"><input type="checkbox" class="col-required" style="width:18px;height:18px;"></td>
-        <td><span class="confidence-low">دستی</span></td>
-        <td><button type="button" class="btn btn-xs btn-ghost" onclick="removeRow(this)">حذف</button></td>
+        <td><span class="badge badge-ARCHIVED" style="font-size:0.7rem;">دستی</span></td>
+        <td><button type="button" class="btn btn-xs btn-ghost" onclick="removeRow(this)" style="color:var(--error);">✕</button></td>
     `;
+    // Handle text input to hidden
+    const textInput = tr.querySelector('td:first-child input[type=\"text\"]');
+    const hidden = tr.querySelector('.col-column');
+    textInput.addEventListener('input', function(){
+        hidden.value = this.value;
+        const display = tr.querySelector('.col-display');
+        if(!display.value) display.value = this.value;
+    });
     tbody.appendChild(tr);
 }
-function disableAllCustom(){
-    document.querySelectorAll('#mappingTable tbody tr').forEach(tr=>{
-        const canonical = tr.querySelector('.col-canonical').value;
-        if(!canonical){
-            tr.querySelector('.col-kind').value='CUSTOM';
-        }
-    });
+function resetToSuggested(){
+    if(confirm('بازنشانی به پیشنهاد هوشمند؟ تغییرات دستی شما از دست می‌رود.')){
+        window.location.reload();
+    }
 }
-function autoMap(){ window.location.reload(); }
+// Initialize existing rows: set hidden column value from text if needed
+document.querySelectorAll('#mappingTable tbody tr').forEach(tr=>{
+    const hidden = tr.querySelector('.col-column');
+    if(hidden && !hidden.value){
+        const strong = tr.querySelector('td:first-child strong');
+        if(strong) hidden.value = strong.textContent.trim();
+    }
+});
 </script>
 
 <div style="margin-top:2rem; display:flex; gap:0.75rem;">

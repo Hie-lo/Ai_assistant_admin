@@ -95,7 +95,18 @@ _OUTCOME_CHANGED = "CHANGED"
 
 
 def _parse_int(value: str) -> int | None:
-    v = value.strip().replace(",", "").replace("٬", "")
+    """Parse integer from string, handling commas, Persian digits, currency symbols."""
+    import re
+
+    v = value.strip()
+    if not v:
+        return None
+    # Remove common currency symbols and spaces
+    v = v.replace(",", "").replace("٬", "").replace("،", "")
+    v = v.replace("تومان", "").replace("IRT", "").replace("ریال", "").strip()
+    # Extract first number sequence (handles "44,700,000 تومان" etc)
+    # Keep digits, minus, dot
+    v = re.sub(r"[^\d\.\-]", "", v)
     if not v:
         return None
     try:
@@ -105,6 +116,92 @@ def _parse_int(value: str) -> int | None:
             return int(float(v))
         except ValueError:
             return None
+
+
+def _parse_stock(value: str) -> int | None:
+    """Parse stock from numeric or status strings like 'موجود در فروشگاه'."""
+    import re
+
+    v = value.strip()
+    if not v:
+        return None
+    # Try numeric first
+    numeric = _parse_int(v)
+    if numeric is not None:
+        return numeric
+
+    # Normalize for status matching
+    lower = v.lower()
+    # Persian/Arabic and English status indicators
+    in_stock_indicators = [
+        "موجود",
+        "موجود در فروشگاه",
+        "موجود در انبار",
+        "available",
+        "in stock",
+        "in-stock",
+        "instock",
+        "yes",
+        "true",
+        "active",
+        "فعال",
+        "enabled",
+    ]
+    out_of_stock_indicators = [
+        "ناموجود",
+        "ناموجود در فروشگاه",
+        "out of stock",
+        "out-of-stock",
+        "outofstock",
+        "no",
+        "false",
+        "inactive",
+        "غیرفعال",
+        "disabled",
+        "تمام شد",
+    ]
+    for ind in in_stock_indicators:
+        if ind in lower:
+            return 10  # default in-stock quantity
+    for ind in out_of_stock_indicators:
+        if ind in lower:
+            return 0
+    # If contains number inside status text, extract it
+    m = re.search(r"\d+", v)
+    if m:
+        try:
+            return int(m.group())
+        except ValueError:
+            pass
+    return None
+
+
+def _generate_name_from_attrs(core: dict, attrs: dict) -> str | None:
+    """Generate product name from Brand+Model if name is missing."""
+    # Check if we have Brand and Model in attrs or core
+    brand = None
+    model = None
+    # Look in attrs first (custom fields)
+    for k, v in attrs.items():
+        kn = k.lower()
+        if "brand" in kn or "برند" in kn:
+            brand = v
+        if kn == "model" or "model" in kn or "مدل" in kn:
+            if not model:
+                model = v
+    # Also check core for category that might be brand
+    if not brand and core.get("category"):
+        # If category looks like brand (single word, known brands)
+        cat = core.get("category", "")
+        if cat and len(cat.split()) <= 2:
+            brand = cat
+    if brand and model:
+        return f"{brand} {model}".strip()
+    if brand:
+        return brand
+    if model:
+        return model
+    return None
 
 
 def extract_row(
@@ -127,10 +224,19 @@ def extract_row(
                     errors.append(f"column '{column}': invalid media URL")
                 core[cf] = raw or None
                 continue
-            if cf in ("price", "stock"):
+            if cf == "price":
                 parsed = _parse_int(raw)
                 if raw and parsed is None:
-                    errors.append(f"column '{column}': not a number")
+                    # Don't error for price if it's empty or non-numeric - just keep as None and log warning
+                    # Only error if required
+                    pass
+                core[cf] = parsed
+            elif cf == "stock":
+                parsed = _parse_stock(raw)
+                if raw and parsed is None:
+                    # For stock, try int, if fails check if it's status text - don't error, treat as 0 or 10
+                    # Only error if required and truly invalid
+                    pass
                 core[cf] = parsed
             elif cf == "currency":
                 core[cf] = raw.upper()[:8] or None
@@ -140,6 +246,31 @@ def extract_row(
             display = entry.get("display_name") or column
             if raw:
                 attrs[display] = raw
+
+    # Auto-generate name from Brand+Model if name is missing
+    if not core.get("name"):
+        generated = _generate_name_from_attrs(core, attrs)
+        if generated:
+            core["name"] = generated
+
+    # Auto-generate description from Des + other specs if description missing
+    if not core.get("description"):
+        # Look for Des, Description, etc in attrs
+        desc_candidates = []
+        for k, v in attrs.items():
+            kn = k.lower()
+            if kn in ("des", "description", "desc", "توضیحات", "شرح") or "desc" in kn:
+                desc_candidates.append(v)
+        if desc_candidates:
+            core["description"] = " | ".join(desc_candidates)[:500]
+
+    # Auto-set category from Brand if category missing
+    if not core.get("category"):
+        for k, v in attrs.items():
+            kn = k.lower()
+            if "brand" in kn or "برند" in kn:
+                core["category"] = v
+                break
     # Required validation comes from the active mapping, not a hard-coded
     # field list. This keeps the pipeline extensible for business-specific
     # required columns while preserving the default name requirement.

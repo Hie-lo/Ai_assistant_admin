@@ -1,46 +1,98 @@
 {% extends "base.html" %}
 {% block title %}{{ product.name }} — محصولات{% endblock %}
 {% block content %}
-<div class="product-detail">
-    <h1>{{ product.name }}</h1>
-    <div class="product-meta">
-        <p><strong>قیمت:</strong> {{ product.price or '—' }} {{ product.currency }}</p>
-        <p><strong>موجودی:</strong> {{ product.stock or '—' }}</p>
-        <p><strong>دسته:</strong> {{ product.category or '—' }}</p>
-        <p><strong>وضعیت:</strong> {{ product.lifecycle_state }}</p>
-        <p><strong>شناسه خارجی:</strong> {{ product.external_id or '—' }}</p>
-        <p><strong>SKU:</strong> {{ product.sku or '—' }}</p>
+<div class="hero-section" style="padding:1.5rem;">
+    <div style="display:flex; justify-content:space-between; align-items:start; flex-wrap:wrap; gap:1rem;">
+        <div>
+            <h1>📦 {{ product.name }}</h1>
+            <p style="margin-top:0.5rem; opacity:0.9;">
+                {{ business.business_name }} • 
+                <span class="badge" style="background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.3); color:white;">{{ product.lifecycle_state }}</span>
+                {% if product.category %}<span style="margin-right:0.5rem;">📁 {{ product.category }}</span>{% endif %}
+            </p>
+        </div>
+        <div style="display:flex; gap:0.5rem;">
+            <a href="/web/businesses/{{ business.business_id }}/products" class="btn btn-sm" style="background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.3);">← محصولات</a>
+            <a href="/web/businesses/{{ business.business_id }}/products/{{ product.product_id }}/edit" class="btn btn-sm" style="background:white; color:var(--primary);">✏️ ویرایش</a>
+        </div>
     </div>
-    {% if product.description %}
-    <div class="product-description">
-        <h3>توضیحات</h3>
-        <p>{{ product.description }}</p>
+    <div class="hero-stats">
+        <div class="hero-stat"><strong>{{ product.price or '—' }}</strong><span>قیمت {{ product.currency or 'IRT' }}</span></div>
+        <div class="hero-stat"><strong>{{ product.stock if product.stock is not none else '—' }}</strong><span>موجودی</span></div>
+        <div class="hero-stat"><strong>{{ product.sku or '—' }}</strong><span>SKU</span></div>
     </div>
-    {% endif %}
-    {% if product.attributes %}
-    <div class="product-attributes">
-        <h3>ویژگی‌ها</h3>
-        <ul>
-        {% for k,v in product.attributes.items() %}
-            <li><strong>{{ k }}:</strong> {{ v }}</li>
-        {% endfor %}
-        </ul>
-    </div>
-    {% endif %}
-    <div class="product-actions">
-        <button hx-get="/api/v1/businesses/{{ business.business_id }}/products/{{ product.product_id }}/preview" hx-target="#preview" class="btn">پیش‌نمایش پست</button>
-        <a href="/web/businesses/{{ business.business_id }}/products/{{ product.product_id }}/edit" class="btn">ویرایش</a>
-    </div>
-    <div id="preview" class="preview-box"></div>
+</div>
 
-    <section class="section">
-        <h3>نسخه‌ها</h3>
-        <div hx-get="/web/businesses/{{ business.business_id }}/products/{{ product.product_id }}/versions/partial" hx-trigger="load"></div>
-    </section>
+<div class="grid-2">
+    <div class="card">
+        <h3 style="margin-bottom:1rem;">ℹ️ اطلاعات اصلی</h3>
+        <div style="display:grid; gap:0.7rem; font-size:0.92rem;">
+            <div style="display:flex; justify-content:space-between; padding:0.6rem 0; border-bottom:1px solid var(--border);"><span class="muted">نام</span><strong>{{ product.name }}</strong></div>
+            <div style="display:flex; justify-content:space-between; padding:0.6rem 0; border-bottom:1px solid var(--border);"><span class="muted">قیمت</span><span>{% if product.price %}{{ product.price }} {{ product.currency }}{% else %}<span class="badge badge-ARCHIVED">—</span>{% endif %}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:0.6rem 0; border-bottom:1px solid var(--border);"><span class="muted">موجودی</span><span>{% if product.stock is not none %}{{ product.stock }}{% else %}<span class="badge badge-ARCHIVED">—</span>{% endif %}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:0.6rem 0; border-bottom:1px solid var(--border);"><span class="muted">دسته</span><span>{{ product.category or '—' }}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:0.6rem 0; border-bottom:1px solid var(--border);"><span class="muted">SKU</span><code style="font-size:0.85rem;">{{ product.sku or '—' }}</code></div>
+            <div style="display:flex; justify-content:space-between; padding:0.6rem 0; border-bottom:1px solid var(--border);"><span class="muted">بارکد</span><code style="font-size:0.85rem;">{{ product.barcode or '—' }}</code></div>
+            <div style="display:flex; justify-content:space-between; padding:0.6rem 0; border-bottom:1px solid var(--border);"><span class="muted">شناسه خارجی</span><code style="font-size:0.8rem;">{{ product.external_id or '—' }}</code></div>
+            <div style="display:flex; justify-content:space-between; padding:0.6rem 0;"><span class="muted">وضعیت</span><span class="badge badge-{{ product.lifecycle_state }}">{{ product.lifecycle_state }}</span></div>
+        </div>
+        {% if product.description %}
+        <div style="margin-top:1.25rem; padding:1rem; background:#f8fafc; border-radius:0.6rem; border:1px solid var(--border);">
+            <strong>📝 توضیحات:</strong>
+            <p style="margin-top:0.5rem; white-space:pre-wrap;">{{ product.description }}</p>
+        </div>
+        {% endif %}
+    </div>
 
-    <section class="section">
-        <h3>انتشارها</h3>
-        <div hx-get="/web/businesses/{{ business.business_id }}/publications/partial?product_id={{ product.product_id }}" hx-trigger="load"></div>
-    </section>
+    <div class="card">
+        <h3 style="margin-bottom:1rem;">🏷️ ویژگی‌های سفارشی</h3>
+        {% if product.attributes %}
+        <div style="display:grid; gap:0.6rem;">
+            {% for k,v in product.attributes.items() %}
+            <div style="display:flex; justify-content:space-between; padding:0.6rem 0; border-bottom:1px solid var(--border); font-size:0.9rem;">
+                <span class="muted">{{ k }}</span><strong>{{ v }}</strong>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state" style="padding:1.5rem; border:none;">
+            <p class="muted">ویژگی سفارشی ندارد</p>
+        </div>
+        {% endif %}
+
+        <div style="margin-top:1.5rem;">
+            <h4 style="margin-bottom:0.75rem;">🔍 پیش‌نمایش پست</h4>
+            <p class="muted" style="font-size:0.85rem; margin-bottom:0.75rem;">همان رندری که برای انتشار استفاده می‌شود (قالب پیش‌فرض)</p>
+            <div id="preview" class="preview-box" style="min-height:80px; display:flex; align-items:center; justify-content:center;">
+                <span class="muted">برای پیش‌نمایش کلیک کنید</span>
+            </div>
+            <button hx-get="/api/v1/businesses/{{ business.business_id }}/products/{{ product.product_id }}/preview" hx-target="#preview" class="btn btn-sm btn-outline" style="margin-top:0.75rem; width:100%;">👁️ نمایش پیش‌نمایش</button>
+        </div>
+    </div>
+</div>
+
+<div class="grid-2" style="margin-top:1.5rem;">
+    <div class="card" style="padding:0; overflow:hidden;">
+        <div style="padding:1rem 1.25rem; background:#f8fafc; border-bottom:1px solid var(--border);">
+            <h3>📜 نسخه‌ها</h3>
+        </div>
+        <div style="padding:1rem;" hx-get="/web/businesses/{{ business.business_id }}/products/{{ product.product_id }}/versions/partial" hx-trigger="load">
+            <span class="muted">در حال بارگذاری...</span>
+        </div>
+    </div>
+    <div class="card" style="padding:0; overflow:hidden;">
+        <div style="padding:1rem 1.25rem; background:#f8fafc; border-bottom:1px solid var(--border);">
+            <h3>📤 انتشارها</h3>
+        </div>
+        <div style="padding:1rem;" hx-get="/web/businesses/{{ business.business_id }}/publications/partial?product_id={{ product.product_id }}" hx-trigger="load">
+            <span class="muted">در حال بارگذاری...</span>
+        </div>
+    </div>
+</div>
+
+<div style="margin-top:2rem; display:flex; gap:0.75rem; flex-wrap:wrap;">
+    <a href="/web/businesses/{{ business.business_id }}/products" class="btn btn-ghost">← لیست محصولات</a>
+    <a href="/web/businesses/{{ business.business_id }}/products/{{ product.product_id }}/edit" class="btn btn-primary">✏️ ویرایش محصول</a>
+    <a href="/web/businesses/{{ business.business_id }}/sources" class="btn btn-outline">📦 منابع</a>
 </div>
 {% endblock %}

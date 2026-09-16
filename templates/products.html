@@ -1,41 +1,91 @@
 {% extends "base.html" %}
 {% block title %}محصولات — {{ business.business_name }}{% endblock %}
 {% block content %}
-<div class="products-page">
-    <h1>محصولات — {{ business.business_name }}</h1>
-    <div class="toolbar">
-        <form method="get" class="search-form">
-            <input type="text" name="q" placeholder="جستجو..." value="{{ q or '' }}">
-            <select name="state">
-                <option value="">همه وضعیت‌ها</option>
-                <option value="ACTIVE" {% if state == 'ACTIVE' %}selected{% endif %}>فعال</option>
-                <option value="MISSING_FROM_SOURCE" {% if state == 'MISSING_FROM_SOURCE' %}selected{% endif %}>گمشده</option>
-                <option value="REVIEW_REQUIRED" {% if state == 'REVIEW_REQUIRED' %}selected{% endif %}>نیاز به بررسی</option>
-                <option value="ARCHIVED" {% if state == 'ARCHIVED' %}selected{% endif %}>آرشیو</option>
-            </select>
-            <button type="submit" class="btn btn-sm">فیلتر</button>
-        </form>
+<div class="hero-section" style="padding:1.5rem;">
+    <div style="display:flex; justify-content:space-between; align-items:start; flex-wrap:wrap; gap:1rem;">
+        <div>
+            <h1>📦 محصولات — {{ business.business_name }}</h1>
+            <p style="margin-top:0.5rem; opacity:0.9;">{{ products|length }} محصول • مدیریت، ویرایش، پیش‌نمایش و انتشار</p>
+        </div>
+        <div style="display:flex; gap:0.5rem;">
+            <a href="/web/businesses/{{ business.business_id }}/sources" class="btn btn-sm" style="background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.3);">📥 ورود از منبع</a>
+            <a href="/web/businesses/{{ business.business_id }}" class="btn btn-sm" style="background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.3);">← کسب‌وکار</a>
+        </div>
     </div>
-    <table class="table">
-        <thead>
-            <tr><th>نام</th><th>قیمت</th><th>موجودی</th><th>وضعیت</th><th>عملیات</th></tr>
-        </thead>
-        <tbody>
-        {% for p in products %}
-            <tr>
-                <td>{{ p.name }}</td>
-                <td>{{ p.price or '—' }}</td>
-                <td>{{ p.stock or '—' }}</td>
-                <td><span class="badge badge-{{ p.lifecycle_state }}">{{ p.lifecycle_state }}</span></td>
-                <td>
-                    <a href="/web/businesses/{{ business.business_id }}/products/{{ p.product_id }}" class="btn btn-xs">مشاهده</a>
-                </td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-    {% if not products %}
-    <p class="muted">محصولی یافت نشد. از منابع، داده وارد کنید.</p>
-    {% endif %}
+    <div class="hero-stats">
+        <div class="hero-stat"><strong>{{ products|length }}</strong><span>کل محصولات</span></div>
+        <div class="hero-stat"><strong>{{ products|selectattr('lifecycle_state','equalto','ACTIVE')|list|length }}</strong><span>فعال</span></div>
+        <div class="hero-stat"><strong>{{ products|selectattr('lifecycle_state','equalto','REVIEW_REQUIRED')|list|length }}</strong><span>نیاز به بررسی</span></div>
+    </div>
 </div>
+
+<div class="card" style="margin-bottom:1.5rem; padding:1.25rem;">
+    <form method="get" class="toolbar" style="margin-bottom:0;">
+        <div style="display:flex; gap:0.75rem; flex-wrap:wrap; flex:1;">
+            <div class="form-group" style="flex:1; min-width:200px; margin-bottom:0;">
+                <input type="text" name="q" placeholder="🔍 جستجو نام، SKU، دسته..." value="{{ q or '' }}" style="width:100%;">
+            </div>
+            <div class="form-group" style="min-width:160px; margin-bottom:0;">
+                <select name="state" style="width:100%;">
+                    <option value="">همه وضعیت‌ها</option>
+                    <option value="ACTIVE" {% if state == 'ACTIVE' %}selected{% endif %}>✅ فعال</option>
+                    <option value="MISSING_FROM_SOURCE" {% if state == 'MISSING_FROM_SOURCE' %}selected{% endif %}>⚠️ گمشده از منبع</option>
+                    <option value="REVIEW_REQUIRED" {% if state == 'REVIEW_REQUIRED' %}selected{% endif %}>🔍 نیاز به بررسی</option>
+                    <option value="ARCHIVED" {% if state == 'ARCHIVED' %}selected{% endif %}>📦 آرشیو</option>
+                </select>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary">فیلتر</button>
+        <a href="/web/businesses/{{ business.business_id }}/products" class="btn btn-ghost">پاک کردن</a>
+    </form>
+</div>
+
+{% if products %}
+<div class="card" style="padding:0; overflow:hidden;">
+    <div style="overflow-x:auto;">
+        <table class="table" style="box-shadow:none; border:none; border-radius:0;">
+            <thead>
+                <tr><th>نام / SKU</th><th>قیمت</th><th>موجودی</th><th>دسته</th><th>وضعیت</th><th>عملیات</th></tr>
+            </thead>
+            <tbody>
+            {% for p in products %}
+                <tr>
+                    <td>
+                        <strong>{{ p.name }}</strong><br>
+                        <span class="muted" style="font-size:0.75rem;">{{ p.sku or p.external_id or '' }}</span>
+                    </td>
+                    <td>
+                        {% if p.price %}<strong>{{ p.price }}</strong> <span class="muted" style="font-size:0.8rem;">{{ p.currency or 'IRT' }}</span>
+                        {% else %}<span class="badge badge-ARCHIVED">—</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if p.stock is not none %}
+                            {% if p.stock > 0 %}<span class="badge badge-ACTIVE">{{ p.stock }}</span>{% else %}<span class="badge badge-REVIEW_REQUIRED">0</span>{% endif %}
+                        {% else %}<span class="badge badge-ARCHIVED">—</span>{% endif %}
+                    </td>
+                    <td><span class="muted" style="font-size:0.85rem;">{{ p.category or '—' }}</span></td>
+                    <td><span class="badge badge-{{ p.lifecycle_state }}">{{ p.lifecycle_state }}</span></td>
+                    <td>
+                        <div style="display:flex; gap:0.3rem;">
+                            <a href="/web/businesses/{{ business.business_id }}/products/{{ p.product_id }}" class="btn btn-xs btn-outline">👁️</a>
+                            <a href="/web/businesses/{{ business.business_id }}/products/{{ p.product_id }}/edit" class="btn btn-xs btn-ghost">✏️</a>
+                        </div>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="empty-state">
+    <div class="icon">📭</div>
+    <h3>محصولی یافت نشد</h3>
+    <p>از منابع، داده وارد کنید یا جستجو را تغییر دهید.</p>
+    <div style="margin-top:1rem; display:flex; gap:0.5rem; justify-content:center; flex-wrap:wrap;">
+        <a href="/web/businesses/{{ business.business_id }}/sources" class="btn btn-primary">📥 ورود از منبع</a>
+        <a href="/static/samples/products_laptop_realistic_31cols.xlsx" target="_blank" class="btn btn-outline">📥 دانلود نمونه واقعی</a>
+    </div>
+</div>
+{% endif %}
 {% endblock %}

@@ -368,7 +368,10 @@ def business_sources(request: Request, business_id: uuid.UUID, db: DbDep):
     try:
         sources = db.scalars(
             select(models.Source)
-            .where(models.Source.business_id == business_id)
+            .where(
+                models.Source.business_id == business_id,
+                models.Source.status != enums.SourceStatus.ARCHIVED.value,
+            )
             .order_by(models.Source.created_at.desc())
         ).all()
     except Exception as exc:
@@ -1147,8 +1150,48 @@ async def source_mapping_suggest(
         )
 
     suggested_entries = mapping_svc.suggest_entries(src_read.headers)
-    # If no suggestion matched, still create CUSTOM entries for all headers
     suggested_records = mapping_svc.entries_to_records(suggested_entries)
+
+    # Load existing active mapping to pre-fill editor (customer-friendly: keep previous active state)
+    existing_active = None
+    try:
+        existing_active = db.scalar(
+            select(models.SourceMapping).where(
+                models.SourceMapping.source_id == source_id,
+                models.SourceMapping.status == enums.MappingStatus.ACTIVE.value,
+            )
+        )
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+
+    # If active mapping exists, merge it with suggestions to keep user's previous choices
+    if existing_active and existing_active.entries:
+        # Build lookup of existing mapping by column
+        existing_by_col = {e.get("column"): e for e in existing_active.entries}
+        merged = []
+        for rec in suggested_records:
+            col = rec.get("column")
+            if col in existing_by_col:
+                # Keep existing mapping for this column (user's previous choice)
+                existing = existing_by_col[col]
+                merged.append(
+                    {
+                        "column": col,
+                        "canonical_field": existing.get("canonical_field"),
+                        "field_kind": existing.get("field_kind", "CUSTOM"),
+                        "field_type": existing.get("field_type", "STRING"),
+                        "display_name": existing.get("display_name", col),
+                        "required": existing.get("required", False),
+                        "template_exposed": existing.get("template_exposed", False),
+                        "confidence": 1.0,
+                        "evidence": f"existing active mapping v{existing_active.version}",
+                    }
+                )
+            else:
+                merged.append(rec)
+        # Also add any columns from existing that are not in current headers? No, skip
+        suggested_records = merged
 
     return templates.TemplateResponse(
         request,
@@ -1161,6 +1204,7 @@ async def source_mapping_suggest(
             "suggested": suggested_records,
             "complete": src_read.complete,
             "read_error": read_error,
+            "existing_mapping": existing_active,
             "version": __version__,
         },
     )
@@ -1308,6 +1352,11 @@ async def source_mapping_create(
         mapping = mapping_svc.create_mapping_version(
             db, source=source, entries=cleaned, actor_id=user.user_id
         )
+        # Customer-friendly: auto-activate the new mapping immediately
+        # (no need for separate DRAFT->ACTIVE step for simple cases)
+        mapping_svc.activate_mapping(
+            db, source=source, mapping=mapping, actor_id=user.user_id
+        )
         db.commit()
     except Exception as exc:
         with contextlib.suppress(Exception):
@@ -1327,7 +1376,8 @@ async def source_mapping_create(
             status_code=400,
         )
 
-    # After creation, redirect to source detail where user can activate and preview
+    # After creation+activation, redirect to source detail with success
+    # Use 302 to show updated active mapping and allow immediate import
     return RedirectResponse(
         url=f"/web/businesses/{business_id}/sources/{source_id}",
         status_code=302,
@@ -1801,6 +1851,245 @@ def product_detail_page(
             "product": product,
             "version": __version__,
         },
+    )
+
+
+@router.post(
+    "/businesses/{business_id}/sources/{source_id}/delete",
+    response_class=HTMLResponse,
+)
+def source_delete(
+    request: Request,
+    business_id: uuid.UUID,
+    source_id: uuid.UUID,
+    db: DbDep,
+):
+    """Delete/archive a source. Hard delete if no import runs, otherwise soft archive."""
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
+
+    try:
+        source = db.scalar(
+            select(models.Source).where(
+                models.Source.source_id == source_id,
+                models.Source.business_id == business_id,
+            )
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {"current_user": user, "error": f"DB error: {exc}", "version": __version__},
+            status_code=500,
+        )
+    if not source:
+        return HTMLResponse("Source not found", status_code=404)
+
+    try:
+        # Check if source has import runs or products linked
+        has_runs = db.scalar(
+            select(models.ImportRun).where(models.ImportRun.source_id == source_id).limit(1)
+        )
+        if has_runs:
+            # Soft delete: archive
+            source.status = enums.SourceStatus.ARCHIVED.value
+            db.flush()
+            from app.application.audit import AuditService
+
+            AuditService(db).record(
+                action="source.archived",
+                actor_user_id=user.user_id,
+                business_id=business_id,
+                target_type="source",
+                target_id=str(source.source_id),
+                meta={"name": source.name},
+            )
+        else:
+            # Hard delete: no history, safe to remove
+            # Delete mappings first
+            for m in db.scalars(
+                select(models.SourceMapping).where(models.SourceMapping.source_id == source_id)
+            ):
+                db.delete(m)
+            for r in db.scalars(
+                select(models.SourceRecord).where(models.SourceRecord.source_id == source_id)
+            ):
+                db.delete(r)
+            db.delete(source)
+        db.commit()
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {"current_user": user, "error": f"Delete failed: {exc}", "version": __version__},
+            status_code=500,
+        )
+
+    return RedirectResponse(
+        url=f"/web/businesses/{business_id}/sources", status_code=302
+    )
+
+
+@router.get(
+    "/businesses/{business_id}/products/{product_id}/edit",
+    response_class=HTMLResponse,
+)
+def product_edit_page(
+    request: Request,
+    business_id: uuid.UUID,
+    product_id: uuid.UUID,
+    db: DbDep,
+):
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
+    try:
+        product = db.scalar(
+            select(models.Product).where(
+                models.Product.product_id == product_id,
+                models.Product.business_id == business_id,
+            )
+        )
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return HTMLResponse("DB error", status_code=500)
+    if not product:
+        return HTMLResponse("Product not found", status_code=404)
+
+    return templates.TemplateResponse(
+        request,
+        "product_edit.html",
+        {
+            "current_user": user,
+            "business": business,
+            "product": product,
+            "version": __version__,
+        },
+    )
+
+
+@router.post(
+    "/businesses/{business_id}/products/{product_id}/edit",
+    response_class=HTMLResponse,
+)
+def product_edit_submit(
+    request: Request,
+    business_id: uuid.UUID,
+    product_id: uuid.UUID,
+    db: DbDep,
+    name: Annotated[str, Form()],
+    price: Annotated[str, Form()] = "",
+    stock: Annotated[str, Form()] = "",
+    category: Annotated[str, Form()] = "",
+    description: Annotated[str, Form()] = "",
+    sku: Annotated[str, Form()] = "",
+    barcode: Annotated[str, Form()] = "",
+    external_id: Annotated[str, Form()] = "",
+):
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
+    try:
+        product = db.scalar(
+            select(models.Product).where(
+                models.Product.product_id == product_id,
+                models.Product.business_id == business_id,
+            )
+        )
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return HTMLResponse("DB error", status_code=500)
+    if not product:
+        return HTMLResponse("Product not found", status_code=404)
+
+    try:
+        # Update core fields
+        product.name = name.strip() or product.name
+        if price.strip():
+            try:
+                product.price = int(price.strip().replace(",", "").replace("٬", ""))
+            except ValueError:
+                pass
+        else:
+            product.price = None
+        if stock.strip():
+            try:
+                product.stock = int(stock.strip().replace(",", ""))
+            except ValueError:
+                product.stock = None
+        else:
+            product.stock = None
+        product.category = category.strip() or None
+        product.description = description.strip() or None
+        product.sku = sku.strip() or None
+        product.barcode = barcode.strip() or None
+        product.external_id = external_id.strip() or None
+
+        from datetime import UTC, datetime
+
+        product.updated_at = datetime.now(UTC)
+
+        # Create version record
+        from app.domain import enums as domain_enums
+
+        db.add(
+            models.ProductVersion(
+                product_id=product.product_id,
+                business_id=business_id,
+                version_no=product.current_version + 1,
+                change_categories=["MANUAL_EDIT"],
+                risk_level=domain_enums.ChangeRisk.LOW.value,
+                changed_fields={"manual_edit": True},
+                content_hash="manual",
+                trigger=domain_enums.SyncTrigger.MANUAL.value,
+            )
+        )
+        product.current_version += 1
+
+        db.commit()
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "product_edit.html",
+            {
+                "current_user": user,
+                "business": business,
+                "product": product,
+                "error": f"Save failed: {exc}",
+                "version": __version__,
+            },
+            status_code=400,
+        )
+
+    return RedirectResponse(
+        url=f"/web/businesses/{business_id}/products/{product_id}", status_code=302
     )
 
 
