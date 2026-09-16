@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "arena/**"]
+  pull_request:
+
+jobs:
+  quality:
+    name: Lint + unit tests (Python 3.13)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Ruff (lint)
+        run: ruff check app tests migrations
+      - name: Unit tests (no services)
+        run: pytest tests/unit
+
+  integration:
+    name: Integration (PostgreSQL 17 + Redis 7)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_assistant_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ai_assistant_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/ai_assistant_ci
+      REDIS_URL: redis://localhost:6379/0
+      # Run DB-backed tests against the PostgreSQL service (validates the
+      # Postgres-specific constraints such as partial unique indexes).
+      TEST_BACKEND: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Service pre-flight (PostgreSQL + Redis, with retries)
+        run: python scripts/ci_check_services.py
+      - name: Validate migration DDL on PostgreSQL
+        run: alembic upgrade head
+      - name: Integration tests
+        run: pytest tests/integration -m integration

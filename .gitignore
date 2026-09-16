@@ -1,0 +1,36 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pip-cache/
+
+# --- Environment / secrets (never commit) ---
+.env
+.env.*
+!.env.example
+
+# --- Test / tooling caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage/
+htmlcov/
+.tox/
+
+# --- Project-local data (never commit) ---
+backups/*
+!backups/README.md
+data/
+*.log
+logs/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+.DS_Store

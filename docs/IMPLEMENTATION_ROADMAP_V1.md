@@ -53,9 +53,14 @@
 - capability-specific rendering
 
 ## Phase 7 — Eitaa/Rubika certification
-- current official docs review
-- live/staging tests
-- unsupported capability matrix
+**Status: DEFERRED to after Phase 12 (owner decision 2026-09-16 — core-first).**
+- current official docs review — DONE
+  (`PHASE7_EITAA_RUBIKA_CONTRACT_REVIEW.md`: Rubika official REST API fully
+  reviewed incl. 2-step media upload; Eitaa has no public official bot API —
+  third-party eitaayar.ir contract captured; capability matrix vs
+  Telegram/Bale complete)
+- live/staging tests — PENDING (run when the phase resumes)
+- unsupported capability matrix — DONE (see review doc)
 - activate only passed features
 
 ## Phase 8 — Sync engine
@@ -95,3 +100,18 @@
 - platform certification pass
 - rollback rehearsal
 - release checklist
+
+## Execution order v1.1 (owner-approved 2026-09-16)
+
+Core-first strategy: finish a clean, complete Telegram + Bale product before
+adding new platforms.
+
+1. Phase 8 — Sync engine
+2. Phase 9 — Interfaces (Telegram/Bale management + Web panel)
+3. Phase 10 — Monitoring / Backup / DR
+4. Phase 11 — Scale hardening
+5. Phase 12 — Production readiness
+6. Eitaa/Rubika — AFTER Phase 12, as extension platforms. The contract
+   review is already complete (`PHASE7_EITAA_RUBIKA_CONTRACT_REVIEW.md`);
+   what remains is the live certification runs + adapter build, so the
+   deferred phase is smaller than it was.

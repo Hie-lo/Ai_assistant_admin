@@ -1,0 +1,70 @@
+# دستیار هوشمند کسب‌وکارهای مجازی — single-server development baseline.
+# PostgreSQL 17 is the conservative fallback per TECHNOLOGY_AND_REPO_SPECIFICATION_V1
+# (production target: PostgreSQL 18, to be verified before launch — Gate I).
+name: ai-assistant-admin
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_assistant
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_assistant"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  web:
+    build: .
+    environment:
+      ENVIRONMENT: dev
+      SECRET_KEY: dev-only-change-me
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/ai_assistant
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    command: uvicorn app.interfaces.http.app:app --host 0.0.0.0 --port 8000
+
+  worker:
+    build: .
+    environment:
+      ENVIRONMENT: dev
+      SECRET_KEY: dev-only-change-me
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/ai_assistant
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.workers.celery_app:celery worker --loglevel=INFO
+
+volumes:
+  pgdata:
