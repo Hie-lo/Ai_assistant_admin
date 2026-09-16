@@ -129,12 +129,24 @@ def login_submit(
             },
             status_code=401,
         )
+<<<<<<< HEAD
     response = RedirectResponse(url="/web/", status_code=302)
     response.set_cookie(
         key=get_settings().session_cookie_name,
         value=token,
         httponly=True,
         samesite="lax",
+=======
+    settings = get_settings()
+    response = RedirectResponse(url="/web/", status_code=302)
+    response.set_cookie(
+        key=settings.session_cookie_name,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=settings.is_prod,
+        path="/",
+>>>>>>> edd8228 (fix: web login cookie path=/ and secure flag + auth flow)
         max_age=30 * 24 * 3600,
     )
     return response
@@ -187,12 +199,24 @@ def register_submit(
             },
             status_code=400,
         )
+<<<<<<< HEAD
     response = RedirectResponse(url="/web/", status_code=302)
     response.set_cookie(
         key=get_settings().session_cookie_name,
         value=token,
         httponly=True,
         samesite="lax",
+=======
+    settings = get_settings()
+    response = RedirectResponse(url="/web/", status_code=302)
+    response.set_cookie(
+        key=settings.session_cookie_name,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=settings.is_prod,
+        path="/",
+>>>>>>> edd8228 (fix: web login cookie path=/ and secure flag + auth flow)
         max_age=30 * 24 * 3600,
     )
     return response
@@ -214,7 +238,13 @@ def logout(request: Request, db: DbDep):
     except Exception:
         pass
     response = RedirectResponse(url="/web/login", status_code=302)
+<<<<<<< HEAD
     response.delete_cookie(key=get_settings().session_cookie_name)
+=======
+    response.delete_cookie(
+        key=get_settings().session_cookie_name, path="/"
+    )
+>>>>>>> edd8228 (fix: web login cookie path=/ and secure flag + auth flow)
     return response
 
 
