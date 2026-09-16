@@ -5,7 +5,7 @@
     <div style="display:flex; justify-content:space-between; align-items:start; flex-wrap:wrap; gap:1rem;">
         <div>
             <h1>🏢 {{ business.business_name }}</h1>
-            <p style="margin-top:0.5rem; opacity:0.9;">نوع: {{ business.business_type_key }} • وضعیت: {{ business.lifecycle_state }} • شناسه: {{ business.business_id|truncate(8, True, '') }}</p>
+            <p style="margin-top:0.5rem; opacity:0.9;">نوع: {{ business.business_type_key }} • وضعیت: {{ business.lifecycle_state }} • شناسه: {{ business.business_id|string|truncate(8, True, '') }}</p>
         </div>
         <div style="display:flex; gap:0.5rem;">
             <a href="/web/businesses" class="btn btn-sm" style="background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.3);">← کسب‌وکارها</a>

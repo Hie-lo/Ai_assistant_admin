@@ -74,7 +74,10 @@ def _get_product(db: Session, *, business: Business, product_id: uuid.UUID) -> P
 
 
 def resolve_inputs(product: Product, definition: AIOutputDefinition) -> dict[str, str]:
-    """Resolve the definition's declared input fields from the product."""
+    """Resolve the definition's declared input fields from the product.
+
+    Supports both attributes.X and attr.X prefixes (lightweight prompts use attr.).
+    """
     fields = {
         "name": product.name or "",
         "price": str(product.price) if product.price is not None else "",
@@ -89,20 +92,46 @@ def resolve_inputs(product: Product, definition: AIOutputDefinition) -> dict[str
     }
     out: dict[str, str] = {}
     for f in definition.input_fields or []:
-        if f.startswith("attributes."):
-            out[f] = str((product.attributes or {}).get(f.split(".", 1)[1]) or "")
+        if f.startswith("attributes.") or f.startswith("attr."):
+            key = f.split(".", 1)[1]
+            val = str((product.attributes or {}).get(key) or "")
+            out[f] = val
+            # Store normalized aliases for template rendering
+            out[f"attributes.{key}"] = val
+            out[f"attr.{key}"] = val
         else:
             out[f] = fields.get(f, "")
     return out
 
 
 def _render_prompt(definition: AIOutputDefinition, inputs: dict[str, str]) -> str:
-    """Fill the prompt template with inputs (inert substitution, no re-parse)."""
+    """Fill the prompt template with inputs (inert substitution, no re-parse).
+
+    Supports {name} and {attributes.Brand} / {attr.Brand} both — we normalize
+    attr.* to attributes.* for backwards compatibility with lightweight prompts
+    that use attr. prefix (user requirement for minimal tokens).
+    """
     from app.domain.content import TOKEN_RE
 
-    return TOKEN_RE.sub(
-        lambda m: inputs.get(m.group(1) or "", ""), definition.prompt_template
-    ).strip()
+    def _lookup(m):
+        base = m.group(1) or ""
+        sub = m.group(2)
+        # Full key as written
+        full = f"{base}.{sub}" if sub else base
+        # Direct hit
+        if full in inputs:
+            return inputs[full]
+        # Normalize attr.* -> attributes.*
+        if base == "attr" and sub:
+            alt = f"attributes.{sub}"
+            if alt in inputs:
+                return inputs[alt]
+        # Fallback: base only (for {name}, {category} etc)
+        if base in inputs:
+            return inputs[base]
+        return ""
+
+    return TOKEN_RE.sub(_lookup, definition.prompt_template).strip()
 
 
 def list_artifacts(

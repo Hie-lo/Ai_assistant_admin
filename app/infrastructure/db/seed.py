@@ -155,28 +155,46 @@ AI_DEFINITION_SEED: list[dict[str, object]] = [
 DEFAULT_PRESET_NAME = "Default preset"
 
 #: Phase 4: default preset block list (platform-neutral, allowlisted tokens).
-#: Template matching user's example: laptop with Brand, Model, CPU, RAM, etc.
+#: Template matching user's example EXACTLY — uses STATIC_TEXT with attr tokens for full control
+#: Example output:
+#: 💻 #Asus 1215N Mini
+#: لپ تاپ زیبا...
+#: ⭐️A
+#: 🧠CPU: #Athom-D525
+#: 🧩RAM: 2GB
+#: 💾HARD: 250GB
+#: 🎮GPU: Intel GMA 3150
+#: 📐Screen: 12.1 اینچ
+#: ✔️Weight: 1.46 کیلوگرم
+#: 🔋Battery Life: تا 8 ساعت
+#: ✨ نقاط قوت
+#: 🔹 بسیار سبک...
+#: 🎮⚙️ بازی ها و نرم افزار های قابل اجرا:
+#: {ai_games}
+#: {ai_software}
+#: 💰 قیمت: {price} تومان
+#: 📞 @Nick_Bri | 09102807430
 DEFAULT_PRESET_BLOCKS: list[dict[str, object]] = [
     {"id": "title", "type": "STATIC_TEXT", "ownership": "SYSTEM_MANAGED",
-     "payload": {"text": "💻 {attr.Brand} {name}"}},
+     "payload": {"text": "💻 #{attr.Brand} {name}"}},
     {"id": "ai_desc", "type": "AI_OUTPUT", "ownership": "CUSTOMER_MANAGED",
      "payload": {"key": "ai_description"}},
-    {"id": "grade", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
-     "payload": {"key": "Grade", "display_name": "⭐️"}},
-    {"id": "cpu", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
-     "payload": {"key": "CPU", "display_name": "🧠CPU"}},
-    {"id": "ram", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
-     "payload": {"key": "Ram", "display_name": "🧩RAM"}},
-    {"id": "hard", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
-     "payload": {"key": "Hard", "display_name": "💾HARD"}},
-    {"id": "gpu", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
-     "payload": {"key": "GPU", "display_name": "🎮GPU"}},
-    {"id": "resolution", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
-     "payload": {"key": "Resolution", "display_name": "📐Screen"}},
-    {"id": "weight", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
-     "payload": {"key": "Weight", "display_name": "✔️Weight"}},
-    {"id": "battery", "type": "CUSTOM_FIELD", "ownership": "SYSTEM_MANAGED",
-     "payload": {"key": "Battery life", "display_name": "🔋Battery Life"}},
+    {"id": "grade", "type": "STATIC_TEXT", "ownership": "SYSTEM_MANAGED",
+     "payload": {"text": "⭐️{attr.Grade}"}},
+    {"id": "cpu", "type": "STATIC_TEXT", "ownership": "SYSTEM_MANAGED",
+     "payload": {"text": "🧠CPU: {attr.CPU}"}},
+    {"id": "ram", "type": "STATIC_TEXT", "ownership": "SYSTEM_MANAGED",
+     "payload": {"text": "🧩RAM: {attr.Ram}"}},
+    {"id": "hard", "type": "STATIC_TEXT", "ownership": "SYSTEM_MANAGED",
+     "payload": {"text": "💾HARD: {attr.Hard}"}},
+    {"id": "gpu", "type": "STATIC_TEXT", "ownership": "SYSTEM_MANAGED",
+     "payload": {"text": "🎮GPU: {attr.GPU}"}},
+    {"id": "resolution", "type": "STATIC_TEXT", "ownership": "SYSTEM_MANAGED",
+     "payload": {"text": "📐Screen: {attr.Resolution}"}},
+    {"id": "weight", "type": "STATIC_TEXT", "ownership": "SYSTEM_MANAGED",
+     "payload": {"text": "✔️Weight: {attr.Weight}"}},
+    {"id": "battery", "type": "STATIC_TEXT", "ownership": "SYSTEM_MANAGED",
+     "payload": {"text": "🔋Battery Life: {attr.Battery life}"}},
     {"id": "sep_features", "type": "SEPARATOR", "ownership": "STATIC",
      "payload": {"text": "✨ نقاط قوت"}},
     {"id": "ai_features", "type": "AI_OUTPUT", "ownership": "CUSTOMER_MANAGED",
