@@ -1,5 +1,19 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-16 — Hybrid auto-publish implemented (owner decision)
+
+- Owner chose hybrid option: only LOW/MEDIUM risk changes auto-edit, HIGH/CRITICAL + REPOST needs manual review.
+- Implemented in `sync_tasks.py` _auto_update_changed_products:
+  - After successful import, if source.automatic_sync_enabled True
+  - CHANGED products with LOW/MEDIUM risk and ACTIVE lifecycle -> auto-edit live PUBLISHED publications
+  - Uses business owner as actor for audit, one failure doesn't block others
+  - HIGH/CRITICAL + REPOST -> notify_high_risk_sync_changes (Owner/Admin notification with product_ids)
+- Enhanced `sync_classification.py`: classify_with_risk + should_auto_update
+  - IDENTITY always BLOCKED, HIGH/CRITICAL -> NEEDS_REVIEW, MEDIA without edit -> NEEDS_REVIEW, LOW/MEDIUM -> EDIT
+- Added notify_high_risk_sync_changes in notifications.py (deduplicated by correlation_id, kind SYNC_RECOVERY_REQUIRED)
+- Tests: 240 passed, ruff clean
+- This closes the known gap from Phase 8 review (automatic publication trigger) with safe hybrid policy.
+
 ## 2026-09-16 — Phase 8 deep review + critical bug fixes (12 bugs) + security fixes (4)
 
 - Request: full project bug hunt + Phase 8 compliance review vs SOURCE_SYNC_DOMAIN_SPECIFICATION_V1 sections 8-9,21-24 + roadmap Phase 8.
