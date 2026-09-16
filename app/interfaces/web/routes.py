@@ -999,7 +999,7 @@ async def source_auto_import(
                 )
                 if True
                 else None,
-                "success": f"✅ Import موفق! {outcome.counts.get('new',0)} جدید، {outcome.counts.get('changed',0)} تغییر، {outcome.counts.get('invalid',0)} نامعتبر — جزئیات در Import Runs",
+                "success": f"✅ Import موفق! {outcome.counts.get('new',0)} جدید، {outcome.counts.get('changed',0)} تغییر، {outcome.counts.get('unchanged',0)} بدون تغییر، {outcome.counts.get('invalid',0)} نامعتبر، {outcome.counts.get('blank',0)} خالی — جزئیات در Import Runs. نکته: اگر قبلاً محصول بدون قیمت بوده و الان قیمت‌دار شده، به عنوان 'تغییر' حساب می‌شود (درست است).",
                 "version": __version__,
             },
         )
@@ -1996,14 +1996,14 @@ def product_edit_submit(
     product_id: uuid.UUID,
     db: DbDep,
     name: Annotated[str, Form()],
-    price: Annotated[str, Form()] = "",
-    stock: Annotated[str, Form()] = "",
-    category: Annotated[str, Form()] = "",
     description: Annotated[str, Form()] = "",
-    sku: Annotated[str, Form()] = "",
-    barcode: Annotated[str, Form()] = "",
-    external_id: Annotated[str, Form()] = "",
 ):
+    """Edit product - only description is manually editable, source is authoritative for price/stock.
+
+    Per user feedback: priority is customer's sheet to reduce hassle.
+    Manual edit should be only for description and AI outputs, not price/stock
+    which would be overwritten by next auto-sync.
+    """
     user = _current_user_from_cookie(request, db)
     if not user:
         return RedirectResponse(url="/web/login", status_code=302)
@@ -2028,33 +2028,15 @@ def product_edit_submit(
         return HTMLResponse("Product not found", status_code=404)
 
     try:
-        # Update core fields
-        product.name = name.strip() or product.name
-        if price.strip():
-            try:
-                product.price = int(price.strip().replace(",", "").replace("٬", ""))
-            except ValueError:
-                pass
-        else:
-            product.price = None
-        if stock.strip():
-            try:
-                product.stock = int(stock.strip().replace(",", ""))
-            except ValueError:
-                product.stock = None
-        else:
-            product.stock = None
-        product.category = category.strip() or None
+        # Only description is manually editable - source remains authoritative for price/stock/category/etc
+        # This prevents customer confusion: manual price edit would be overwritten by next sheet sync
         product.description = description.strip() or None
-        product.sku = sku.strip() or None
-        product.barcode = barcode.strip() or None
-        product.external_id = external_id.strip() or None
 
         from datetime import UTC, datetime
 
         product.updated_at = datetime.now(UTC)
 
-        # Create version record
+        # Create version record for manual edit
         from app.domain import enums as domain_enums
 
         db.add(
@@ -2062,10 +2044,10 @@ def product_edit_submit(
                 product_id=product.product_id,
                 business_id=business_id,
                 version_no=product.current_version + 1,
-                change_categories=["MANUAL_EDIT"],
+                change_categories=["MANUAL_EDIT_DESCRIPTION"],
                 risk_level=domain_enums.ChangeRisk.LOW.value,
-                changed_fields={"manual_edit": True},
-                content_hash="manual",
+                changed_fields={"description": {"manual_edit": True}},
+                content_hash="manual_description_edit",
                 trigger=domain_enums.SyncTrigger.MANUAL.value,
             )
         )

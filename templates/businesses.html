@@ -1,39 +1,77 @@
 {% extends "base.html" %}
 {% block title %}کسب‌وکارها — دستیار هوشمند{% endblock %}
 {% block content %}
-<h1>کسب‌وکارها</h1>
+<div class="hero-section" style="padding:1.5rem;">
+    <h1>🏢 کسب‌وکارها</h1>
+    <p>کسب‌وکارهای خود را مدیریت کنید — هر کسب‌وکار محصولات، منابع و اتصالات جدا دارد</p>
+    <div class="hero-stats">
+        <div class="hero-stat"><strong>{{ businesses|length }}</strong><span>کسب‌وکار فعال</span></div>
+        <div class="hero-stat"><strong>{{ business_types|length }}</strong><span>نوع کسب‌وکار</span></div>
+    </div>
+</div>
 
 {% if error %}
 <div class="flash flash-error">{{ error }}</div>
 {% endif %}
 
-<form method="post" action="/web/businesses" id="create-business-form" class="card" style="margin-bottom:2rem;">
-    <h3>ساخت کسب‌وکار جدید</h3>
-    <div class="form-group">
-        <label>نام کسب‌وکار</label>
-        <input type="text" name="name" required>
+<div class="grid-2" style="margin-bottom:2rem;">
+    <div class="card" style="border-right:4px solid var(--primary);">
+        <h3 style="margin-bottom:1rem;">✨ ساخت کسب‌وکار جدید</h3>
+        <form method="post" action="/web/businesses" id="create-business-form">
+            <div class="form-group">
+                <label>نام کسب‌وکار *</label>
+                <input type="text" name="name" required placeholder="مثلا: فروشگاه لپ‌تاپ تهران">
+            </div>
+            <div class="form-group">
+                <label>نوع کسب‌وکار *</label>
+                <select name="business_type_key" required>
+                    {% for bt in business_types %}
+                    <option value="{{ bt.key }}">{{ bt.name }} ({{ bt.key }})</option>
+                    {% endfor %}
+                </select>
+                <span class="muted" style="font-size:0.75rem;">نوع کسب‌وکار قالب پیش‌فرض پست‌ها را تعیین می‌کند</span>
+            </div>
+            <button type="submit" class="btn btn-gradient" style="width:100%;">🚀 ساخت کسب‌وکار</button>
+        </form>
     </div>
-    <div class="form-group">
-        <label>نوع کسب‌وکار</label>
-        <select name="business_type_key" required>
-            {% for bt in business_types %}
-            <option value="{{ bt.key }}">{{ bt.name }}</option>
-            {% endfor %}
-        </select>
-    </div>
-    <button type="submit" class="btn btn-primary">ساخت</button>
-</form>
 
+    <div class="card">
+        <h3 style="margin-bottom:0.75rem;">💡 نکته</h3>
+        <p class="muted" style="font-size:0.9rem; line-height:1.8;">
+            هر کسب‌وکار:
+            <br>• محصولات جدا
+            <br>• منابع (Excel/Google Sheets) جدا
+            <br>• اتصالات پلتفرم جدا (تلگرام، ایتا، روبیکا)
+            <br>• اعضای جدا با نقش‌های مختلف
+            <br>• اشتراک جدا
+            <br><br>
+            tenant isolation مطلق — داده یک کسب‌وکار هرگز به دیگری نشت نمی‌کند.
+        </p>
+    </div>
+</div>
+
+<h2 style="margin-bottom:1rem;">📋 لیست کسب‌وکارها ({{ businesses|length }})</h2>
+{% if businesses %}
 <div class="grid">
 {% for b in businesses %}
-    <div class="card">
-        <h3>{{ b.business_name }}</h3>
-        <p class="muted">{{ b.business_type_key }}</p>
-        <a href="/web/businesses/{{ b.business_id }}" class="btn btn-sm">مدیریت</a>
+    <div class="card" style="border-right:4px solid var(--primary);">
+        <h3 style="margin-bottom:0.5rem;">{{ b.business_name }}</h3>
+        <p class="muted" style="font-size:0.85rem; margin-bottom:1rem;">
+            {{ b.business_type_key }} • <span class="badge badge-{{ b.lifecycle_state }}">{{ b.lifecycle_state }}</span>
+        </p>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <a href="/web/businesses/{{ b.business_id }}" class="btn btn-sm btn-primary">⚙️ مدیریت</a>
+            <a href="/web/businesses/{{ b.business_id }}/products" class="btn btn-sm btn-outline">📦 محصولات</a>
+            <a href="/web/businesses/{{ b.business_id }}/sources" class="btn btn-sm btn-ghost">📥 منابع</a>
+        </div>
     </div>
 {% endfor %}
 </div>
-{% if not businesses %}
-<p class="muted">هنوز کسب‌وکاری ندارید.</p>
+{% else %}
+<div class="empty-state">
+    <div class="icon">🏢</div>
+    <h3>هنوز کسب‌وکاری ندارید</h3>
+    <p>از فرم بالا اولین کسب‌وکار را بسازید</p>
+</div>
 {% endif %}
 {% endblock %}

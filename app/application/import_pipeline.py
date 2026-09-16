@@ -586,14 +586,40 @@ def _upsert_product(
     if (fp or None) != product.fingerprint:
         product.fingerprint = fp or None
 
-    # Attributes merge (custom fields).
+    # Attributes merge (custom fields) - exclude meta fields like Row, No from change detection
+    # Meta fields that shouldn't trigger "changed" counts if only they change
+    META_ATTR_KEYS = {"Row", "No", "No.", "#", "ردیف", "شماره", "row", "no"}
+    # Filter attrs to exclude meta if they are already mapped to external_id
+    # But keep them as attributes for display
     new_attrs = dict(product.attributes or {})
     new_attrs.update(attrs)
-    if new_attrs != (product.attributes or {}):
+
+    # Check if only meta fields changed
+    old_attrs = product.attributes or {}
+    # Compare non-meta attributes
+    old_non_meta = {k: v for k, v in old_attrs.items() if k not in META_ATTR_KEYS}
+    new_non_meta = {k: v for k, v in new_attrs.items() if k not in META_ATTR_KEYS}
+
+    # Only count as changed if non-meta attributes changed or new meta added for first time
+    attrs_changed = False
+    if new_non_meta != old_non_meta:
+        attrs_changed = True
+    elif not old_attrs and new_attrs:
+        # First time attributes set
+        attrs_changed = True
+    # If only Row/No changed, don't count as changed (idempotent)
+    # This fixes "0 جدید، 2 تغییر" when no real change
+
+    if attrs_changed:
         changed_fields["attributes"] = {"new": new_attrs}
         categories.append(enums.ChangeCategory.CUSTOM_FIELD_CHANGED.value)
         risks.append(change_risk.CUSTOM_FIELD_DEFAULT_RISK)
         product.attributes = new_attrs
+    else:
+        # Still update attributes for display even if not counted as changed
+        # But don't create version for meta-only changes
+        if new_attrs != old_attrs:
+            product.attributes = new_attrs
 
     media_changes = _media_reconcile(
         db, product=product, source=source, core=core, business_id=business_id
