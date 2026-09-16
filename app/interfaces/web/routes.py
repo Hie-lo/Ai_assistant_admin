@@ -346,6 +346,8 @@ def product_detail_page(
 
 @router.get("/businesses/{business_id}/sync-jobs/partial", response_class=HTMLResponse)
 def sync_jobs_partial(request: Request, business_id: uuid.UUID, db: DbDep):
+    import html as html_lib
+
     user = _current_user_from_cookie(request, db)
     if not user:
         return HTMLResponse("", status_code=401)
@@ -361,9 +363,13 @@ def sync_jobs_partial(request: Request, business_id: uuid.UUID, db: DbDep):
     ).all()
     html = "<ul class='sync-list'>"
     for j in jobs:
+        status = html_lib.escape(str(j.status))
+        trigger = html_lib.escape(str(j.trigger))
+        sid = html_lib.escape(str(j.source_id))
+        created = html_lib.escape(str(j.created_at))
         html += (
-            f"<li><span class='badge'>{j.status}</span> "
-            f"{j.trigger} — {j.source_id} — {j.created_at}</li>"
+            f"<li><span class='badge'>{status}</span> "
+            f"{trigger} — {sid} — {created}</li>"
         )
     if not jobs:
         html += "<li class='muted'>همگام‌سازی اخیری وجود ندارد</li>"
@@ -373,6 +379,8 @@ def sync_jobs_partial(request: Request, business_id: uuid.UUID, db: DbDep):
 
 @router.get("/businesses/{business_id}/notifications/partial", response_class=HTMLResponse)
 def notifications_partial(request: Request, business_id: uuid.UUID, db: DbDep):
+    import html as html_lib
+
     user = _current_user_from_cookie(request, db)
     if not user:
         return HTMLResponse("", status_code=401)
@@ -391,9 +399,12 @@ def notifications_partial(request: Request, business_id: uuid.UUID, db: DbDep):
     ).all()
     html = "<ul class='notif-list'>"
     for n in notifs:
+        title = html_lib.escape(str(n.title))
+        body = html_lib.escape(str(n.body[:100]))
+        created = html_lib.escape(str(n.created_at))
         html += (
-            f"<li><strong>{n.title}</strong>: {n.body[:100]} "
-            f"<span class='muted'>{n.created_at}</span></li>"
+            f"<li><strong>{title}</strong>: {body} "
+            f"<span class='muted'>{created}</span></li>"
         )
     if not notifs:
         html += "<li class='muted'>اعلانی وجود ندارد</li>"
@@ -411,6 +422,8 @@ def publications_partial(
     db: DbDep,
     product_id: uuid.UUID | None = None,
 ):
+    import html as html_lib
+
     user = _current_user_from_cookie(request, db)
     if not user:
         return HTMLResponse("", status_code=401)
@@ -431,8 +444,10 @@ def publications_partial(
         "<th>اتصال</th><th>پیام</th></tr>"
     )
     for p in pubs:
-        mid = p.remote_message_id or "—"
-        html += f"<tr><td>{p.status}</td><td>{p.connection_id}</td><td>{mid}</td></tr>"
+        status = html_lib.escape(str(p.status))
+        conn = html_lib.escape(str(p.connection_id))
+        mid = html_lib.escape(str(p.remote_message_id or "—"))
+        html += f"<tr><td>{status}</td><td>{conn}</td><td>{mid}</td></tr>"
     if not pubs:
         html += "<tr><td colspan=3 class='muted'>انتشاری وجود ندارد</td></tr>"
     html += "</table>"

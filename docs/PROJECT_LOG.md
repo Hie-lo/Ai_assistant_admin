@@ -1,5 +1,45 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-16 — Phase 8 deep review + critical bug fixes (12 bugs) + security fixes (4)
+
+- Request: full project bug hunt + Phase 8 compliance review vs SOURCE_SYNC_DOMAIN_SPECIFICATION_V1 sections 8-9,21-24 + roadmap Phase 8.
+- Created `docs/PHASE8_REVIEW_AND_FIXES.md` with full analysis.
+- Critical Phase 8 bugs fixed:
+  - BUG-8-01 idempotency minute bucket collision -> high-res bucket with trigger+correlation_id+iso+random
+  - BUG-8-02 QUEUED jobs never recovered (broker down) -> recovery now handles QUEUED >2min + RECOVERY_REQUIRED
+  - BUG-8-03 double begin in except + raise -> removed begin, direct retry_or_exhaust, return RETRY_SCHEDULED no raise
+  - BUG-8-04 entitlement after begin burns attempt -> entitlement checked BEFORE begin, fail_final without attempt
+  - BUG-8-05 per-source concurrency guard incomplete (only active job lock) -> added _lock_source with for_update on Source row
+  - BUG-8-06 RECOVERY_REQUIRED not handled -> recovery handles it via retry_or_exhaust + notify
+  - BUG-8-07 coalescing onto RUNNING loses trigger -> only QUEUED/RETRY_WAITING coalesced, RUNNING creates follow-up job
+  - BUG-8-08 missing heartbeat during long import -> heartbeat before/after import_pipeline
+  - BUG-8-09 finish/fail_final/retry_or_exhaust don't clear next_retry_at -> now cleared
+  - BUG-8-10 scheduler correlation_id minute collision -> second+microsecond
+  - BUG-8-11 global _reappeared_counter race+leak -> local variable reappeared
+  - BUG-8-12 missing inference deletes stale records even when MASS_MISSING_BLOCKED -> fixed order: check mass missing first, only delete stale if not blocked
+- Security / whole-project bugs fixed:
+  - BUG-SEC-01 XSS in web HTMX partials (f-string unescaped) -> html.escape
+  - BUG-SEC-02 path traversal in backup verify (backup_dir / file_name) -> basename check + resolve + inside check
+  - BUG-SEC-03 /metrics/prometheus unprotected -> SuperAdmin required
+  - BUG-SEC-04 webhook endpoints not rate-limited -> added to RateLimitMiddleware sensitive_prefixes
+- Verified Phase 8 compliance:
+  - ✅ SyncJob durable state with all required fields (section 9) present
+  - ✅ Status machine QUEUED/RUNNING/RETRY_WAITING/SUCCEEDED/SUCCEEDED_WITH_ERRORS/FAILED_RETRY_EXHAUSTED/FAILED_FINAL/RECOVERY_REQUIRED/CANCELLED
+  - ✅ Excel boundary enforced (scheduled/automatic only Google Sheets) in enqueue + trigger_sync + scheduler
+  - ✅ Entitlement gate before expensive work (section 22) in routes + tasks + scheduler
+  - ✅ Scheduler 60s Google Sheets automatic enabled interval check
+  - ✅ Retry bounded max 3 backoff 60*2^(n-1) capped 3600 SyncPolicy
+  - ✅ Idempotency via unique index + high-res key
+  - ✅ Coalescing (now only queuable)
+  - ✅ Recovery via heartbeat 15min + QUEUED + RECOVERY_REQUIRED
+  - ✅ Notification after 3rd failure
+  - ✅ Tenant isolation business_id in SyncJob + _require_source + list/get/cancel 404
+  - ✅ Correlation_id everywhere + counts read/valid/new/changed/unchanged/missing/ambiguous/blocked/error+blank
+  - ✅ Failure-first: incomplete never missing, ambiguous never merge, mass missing blocked (now fixed stale deletion)
+- Tests: 240 passed (231 unit + 9 failure), ruff clean
+- Docs: PHASE8_REVIEW_AND_FIXES.md added
+- Next: automatic publication trigger gap is known (manual publishing V1, needs Change Proposal if auto-publish desired), change classification simplistic needs enhancement
+
 ## 2026-09-16 — Final verification: ruff clean + unit/failure green + backup encrypt roundtrip
 
 - Fixed ruff E501/F841/E741/SIM105/SIM102/E402/B904 across:

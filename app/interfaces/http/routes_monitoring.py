@@ -71,8 +71,8 @@ def get_metrics(db: Db, _admin: SuperAdmin):
 
 
 @router.get("/metrics/prometheus")
-def get_metrics_prometheus(db: Db):
-    """Prometheus text format (optional, for future integration)."""
+def get_metrics_prometheus(db: Db, _admin: SuperAdmin):
+    """Prometheus text format (protected: super_admin only)."""
     registry = get_registry()
     snap = registry.snapshot()
     lines = []

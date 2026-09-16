@@ -224,7 +224,26 @@ def verify_backup(
     backup_dir: Path, file_name: str, secret_key: str
 ) -> dict[str, Any]:
     """Verify a backup can be decrypted and checksum matches."""
-    enc_file = backup_dir / file_name
+    safe_name = Path(file_name).name
+    if (
+        not safe_name
+        or safe_name != file_name
+        or "/" in file_name
+        or "\\" in file_name
+        or ".." in file_name
+    ):
+        return {"ok": False, "error": "invalid file name"}
+    enc_file = (backup_dir / safe_name).resolve()
+    try:
+        backup_resolved = backup_dir.resolve()
+        if (
+            backup_resolved not in enc_file.parents
+            and enc_file != backup_resolved
+            and not str(enc_file).startswith(str(backup_resolved))
+        ):
+            return {"ok": False, "error": "invalid file path"}
+    except Exception:
+        return {"ok": False, "error": "invalid file path"}
     if not enc_file.exists():
         return {"ok": False, "error": "file not found"}
 

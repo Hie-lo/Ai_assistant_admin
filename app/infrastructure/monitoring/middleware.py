@@ -86,6 +86,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             "/api/v1/auth/register",
             "/api/v1/links",
             "/api/v1/businesses",
+            "/api/telegram/webhook",
+            "/api/bale/webhook",
         )
         path = request.url.path
         if not any(path.startswith(p) for p in sensitive_prefixes):
