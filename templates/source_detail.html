@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}منبع {{ source.name }} — {{ business.business_name }}{% endblock %}
+{% block content %}
+<h1>منبع: {{ source.name }}</h1>
+<p class="muted">نوع: {{ source.kind }} | وضعیت: {{ source.status }} | بیزنس: {{ business.business_name }}</p>
+
+{% if error %}
+<div class="flash flash-error" style="white-space:pre-wrap">{{ error }}</div>
+{% endif %}
+
+<div class="grid" style="margin-bottom:2rem;">
+    <div class="card">
+        <h3>اطلاعات منبع</h3>
+        <p><strong>ID:</strong> {{ source.source_id }}</p>
+        <p><strong>external_ref:</strong> {{ source.external_ref or '—' }}</p>
+        <p><strong>sheet_name:</strong> {{ source.sheet_name or '—' }}</p>
+        <p><strong>وضعیت:</strong> <span class="badge">{{ source.status }}</span></p>
+        <p><strong>آخرین sync:</strong> {{ source.last_sync_at or '—' }}</p>
+    </div>
+    <div class="card">
+        <h3>Import — آپلود Excel / اجرای همگام‌سازی</h3>
+        <p class="muted">برای Excel: فایل XLSX را انتخاب و Import بزنید. برای Google Sheets: بدون فایل Import بزنید تا از شیت بخواند.</p>
+        <form method="post" action="/web/businesses/{{ business.business_id }}/sources/{{ source.source_id }}/import" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>فایل Excel (اختیاری، فقط برای EXCEL_UPLOAD)</label>
+                <input type="file" name="file" accept=".xlsx,.xls">
+            </div>
+            <button type="submit" class="btn btn-primary">اجرای Import</button>
+        </form>
+        <div style="margin-top:1rem;">
+            <p class="muted">یا از API:</p>
+            <code>POST /api/v1/businesses/{{ business.business_id }}/sources/{{ source.source_id }}/imports</code>
+        </div>
+    </div>
+</div>
+
+<div class="grid">
+    <div class="card">
+        <h3>Mapping ها (نگاشت ستون‌ها)</h3>
+        {% if mappings %}
+        <table class="table">
+            <tr><th>وضعیت</th><th>تاریخ</th></tr>
+            {% for m in mappings %}
+            <tr><td><span class="badge">{{ m.status }}</span></td><td class="muted">{{ m.created_at }}</td></tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <p class="muted">هنوز mapping نساخته‌اید. اول باید suggest و propose کنید.</p>
+        {% endif %}
+        <p class="muted">برای ساخت mapping از API docs استفاده کنید:<br>
+        <code>POST /api/v1/businesses/{{ business.business_id }}/sources/{{ source.source_id }}/mapping/suggest</code><br>
+        <code>POST /api/v1/businesses/{{ business.business_id }}/sources/{{ source.source_id }}/mapping</code></p>
+    </div>
+    <div class="card">
+        <h3>Import Runs اخیر</h3>
+        {% if import_runs %}
+        <table class="table">
+            <tr><th>وضعیت</th><th>شروع</th><th>خلاصه</th></tr>
+            {% for r in import_runs %}
+            <tr><td><span class="badge">{{ r.status }}</span></td><td class="muted">{{ r.started_at }}</td><td class="muted">{{ r.summary or '' }}</td></tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <p class="muted">هنوز import اجرا نشده.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div style="margin-top:2rem;">
+    <a href="/web/businesses/{{ business.business_id }}/sources" class="btn">بازگشت به منابع</a>
+    <a href="/web/businesses/{{ business.business_id }}/products" class="btn">محصولات</a>
+    <a href="/api/docs" class="btn">API Docs</a>
+</div>
+{% endblock %}

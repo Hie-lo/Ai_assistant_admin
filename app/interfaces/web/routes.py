@@ -1,4 +1,4 @@
-"""Web Panel routes — Jinja2 + HTMX (Phase 9)."""
+"""Web Panel routes — Jinja2 + HTMX (Phase 9) — robust + full sources flow."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -17,6 +17,7 @@ from app import __version__
 from app.application import auth as auth_svc
 from app.application import business as biz_svc
 from app.application import products as products_svc
+from app.application import sources as sources_svc
 from app.config.settings import get_settings
 from app.domain import enums
 from app.infrastructure.db import models
@@ -49,15 +50,12 @@ DbDep = Annotated[Session, Depends(_get_db)]
 
 
 def _current_user_from_cookie(request: Request, db: DbDep):
-    """Read session cookie directly from request.cookies (robust).
-
-    Previous version used Cookie(alias=...) dependency which failed in
-    some uvicorn+docker setups when Host was 0.0.0.0 or when duplicate
-    Cookie headers were present. Reading from request.cookies is
-    explicit and works with both browser and curl.
-    """
+    """Robust cookie reading — avoids fragile Cookie(alias=...) dependency."""
     try:
         token = request.cookies.get(SESSION_COOKIE)
+        if not token:
+            # fallback to settings name (env may override)
+            token = request.cookies.get(get_settings().session_cookie_name)
         if not token:
             return None
         resolved = auth_svc.resolve_session(db, token)
@@ -219,7 +217,10 @@ def dashboard(request: Request, db: DbDep):
     user = _current_user_from_cookie(request, db)
     if not user:
         return RedirectResponse(url="/web/login", status_code=302)
-    businesses = biz_svc.list_businesses(db, user=user)
+    try:
+        businesses = biz_svc.list_businesses(db, user=user)
+    except Exception:
+        businesses = []
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -236,8 +237,16 @@ def businesses_list(request: Request, db: DbDep):
     user = _current_user_from_cookie(request, db)
     if not user:
         return RedirectResponse(url="/web/login", status_code=302)
-    businesses = biz_svc.list_businesses(db, user=user)
-    btypes = db.scalars(select(models.BusinessType)).all()
+    try:
+        businesses = biz_svc.list_businesses(db, user=user)
+    except Exception:
+        businesses = []
+    try:
+        btypes = db.scalars(select(models.BusinessType)).all()
+    except Exception:
+        btypes = []
+        with contextlib.suppress(Exception):
+            db.rollback()
     return templates.TemplateResponse(
         request,
         "businesses.html",
@@ -282,8 +291,16 @@ def businesses_create(
     except Exception as exc:
         with contextlib.suppress(Exception):
             db.rollback()
-        businesses = biz_svc.list_businesses(db, user=user)
-        btypes = db.scalars(select(models.BusinessType)).all()
+        try:
+            businesses = biz_svc.list_businesses(db, user=user)
+        except Exception:
+            businesses = []
+        try:
+            btypes = db.scalars(select(models.BusinessType)).all()
+        except Exception:
+            btypes = []
+            with contextlib.suppress(Exception):
+                db.rollback()
         return templates.TemplateResponse(
             request,
             "businesses.html",
@@ -342,21 +359,318 @@ def business_sources(request: Request, business_id: uuid.UUID, db: DbDep):
         )
     except Exception:
         return HTMLResponse("Not found", status_code=404)
-    sources = db.scalars(
-        select(models.Source).where(models.Source.business_id == business_id)
-    ).all()
-    # Simple list rendering via template fallback to business_detail with extra context
+
+    # Robust: if migrations missing (sync_interval_minutes column), return empty + warning
+    sources = []
+    warning = None
+    try:
+        sources = db.scalars(
+            select(models.Source)
+            .where(models.Source.business_id == business_id)
+            .order_by(models.Source.created_at.desc())
+        ).all()
+    except Exception as exc:
+        # ProgrammingError: column does not exist or table missing
+        warning = (
+            f"خطای دیتابیس: {type(exc).__name__} — "
+            f"migrations قدیمی: alembic upgrade head — "
+            f"{str(exc)[:200]}"
+        )
+        with contextlib.suppress(Exception):
+            db.rollback()
+        sources = []
+
     return templates.TemplateResponse(
         request,
-        "business_detail.html",
+        "sources.html",
         {
             "current_user": user,
             "business": business,
             "sources": sources,
-            "extra_section": "sources",
+            "warning": warning,
             "version": __version__,
         },
     )
+
+
+@router.post(
+    "/businesses/{business_id}/sources", response_class=HTMLResponse
+)
+def business_sources_create(
+    request: Request,
+    business_id: uuid.UUID,
+    db: DbDep,
+    name: Annotated[str, Form()],
+    kind: Annotated[str, Form()],
+    external_ref: Annotated[str, Form()] = "",
+    sheet_name: Annotated[str, Form()] = "",
+):
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
+
+    try:
+        # Validate kind
+        kind_enum = enums.SourceKind(kind.strip())
+        # Entitlement check is inside create_source (source_count limit)
+        from app.application.audit import set_correlation_id
+
+        corr = getattr(request.state, "correlation_id", uuid.uuid4().hex)
+        set_correlation_id(corr)
+        source = sources_svc.create_source(
+            db,
+            business_id=business.business_id,
+            actor_id=user.user_id,
+            correlation_id=corr,
+            name=name.strip(),
+            kind=kind_enum,
+            external_ref=external_ref.strip() or None,
+            sheet_name=sheet_name.strip() or None,
+        )
+        db.commit()
+        return RedirectResponse(
+            url=f"/web/businesses/{business_id}/sources/{source.source_id}",
+            status_code=302,
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        # Render sources page with error
+        try:
+            sources = db.scalars(
+                select(models.Source)
+                .where(models.Source.business_id == business_id)
+                .order_by(models.Source.created_at.desc())
+            ).all()
+        except Exception:
+            sources = []
+            with contextlib.suppress(Exception):
+                db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "sources.html",
+            {
+                "current_user": user,
+                "business": business,
+                "sources": sources,
+                "error": str(exc)[:400],
+                "version": __version__,
+            },
+            status_code=400,
+        )
+
+
+@router.get(
+    "/businesses/{business_id}/sources/{source_id}",
+    response_class=HTMLResponse,
+)
+def source_detail(
+    request: Request,
+    business_id: uuid.UUID,
+    source_id: uuid.UUID,
+    db: DbDep,
+):
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
+
+    try:
+        source = db.scalar(
+            select(models.Source).where(
+                models.Source.source_id == source_id,
+                models.Source.business_id == business_id,
+            )
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {
+                "current_user": user,
+                "error": (
+                    f"DB قدیمی: {type(exc).__name__}: {str(exc)[:200]} — "
+                    f"alembic upgrade head"
+                ),
+                "version": __version__,
+            },
+            status_code=500,
+        )
+
+    if not source:
+        return HTMLResponse("Source not found", status_code=404)
+
+    # Load mappings and import runs robustly
+    mappings = []
+    import_runs = []
+    try:
+        mappings = db.scalars(
+            select(models.SourceMapping)
+            .where(models.SourceMapping.source_id == source_id)
+            .order_by(models.SourceMapping.created_at.desc())
+            .limit(20)
+        ).all()
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+    try:
+        import_runs = db.scalars(
+            select(models.ImportRun)
+            .where(models.ImportRun.source_id == source_id)
+            .order_by(models.ImportRun.created_at.desc())
+            .limit(20)
+        ).all()
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+
+    return templates.TemplateResponse(
+        request,
+        "source_detail.html",
+        {
+            "current_user": user,
+            "business": business,
+            "source": source,
+            "mappings": mappings,
+            "import_runs": import_runs,
+            "version": __version__,
+        },
+    )
+
+
+@router.post(
+    "/businesses/{business_id}/sources/{source_id}/import",
+    response_class=HTMLResponse,
+)
+async def source_import(
+    request: Request,
+    business_id: uuid.UUID,
+    source_id: uuid.UUID,
+    db: DbDep,
+    file: Annotated[UploadFile | None, File()] = None,
+):
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
+
+    try:
+        source = db.scalar(
+            select(models.Source).where(
+                models.Source.source_id == source_id,
+                models.Source.business_id == business_id,
+            )
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {
+                "current_user": user,
+                "error": f"DB error: {exc}",
+                "version": __version__,
+            },
+            status_code=500,
+        )
+
+    if not source:
+        return HTMLResponse("Source not found", status_code=404)
+
+    file_bytes = None
+    if file is not None:
+        file_bytes = await file.read()
+
+    try:
+        from app.application import import_pipeline
+        from app.application.audit import set_correlation_id
+
+        corr = getattr(request.state, "correlation_id", uuid.uuid4().hex)
+        set_correlation_id(corr)
+        # Check no running import
+        running = db.scalar(
+            select(models.ImportRun).where(
+                models.ImportRun.source_id == source.source_id,
+                models.ImportRun.status == enums.ImportRunStatus.RUNNING.value,
+            )
+        )
+        if running:
+            raise ValueError("یک import در حال اجرا است")
+
+        import_pipeline.run_import(
+            db,
+            source=source,
+            business_id=business.business_id,
+            actor_id=user.user_id,
+            correlation_id=corr,
+            file_bytes=file_bytes,
+        )
+        db.commit()
+        # Redirect to source detail with success message
+        return RedirectResponse(
+            url=f"/web/businesses/{business_id}/sources/{source_id}",
+            status_code=302,
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        # Render source detail with error
+        try:
+            mappings = db.scalars(
+                select(models.SourceMapping)
+                .where(models.SourceMapping.source_id == source_id)
+                .order_by(models.SourceMapping.created_at.desc())
+                .limit(20)
+            ).all()
+        except Exception:
+            mappings = []
+            with contextlib.suppress(Exception):
+                db.rollback()
+        try:
+            import_runs = db.scalars(
+                select(models.ImportRun)
+                .where(models.ImportRun.source_id == source_id)
+                .order_by(models.ImportRun.created_at.desc())
+                .limit(20)
+            ).all()
+        except Exception:
+            import_runs = []
+            with contextlib.suppress(Exception):
+                db.rollback()
+
+        return templates.TemplateResponse(
+            request,
+            "source_detail.html",
+            {
+                "current_user": user,
+                "business": business,
+                "source": source,
+                "mappings": mappings,
+                "import_runs": import_runs,
+                "error": str(exc)[:500],
+                "version": __version__,
+            },
+            status_code=400,
+        )
 
 
 @router.get(
@@ -372,11 +686,16 @@ def business_connections(request: Request, business_id: uuid.UUID, db: DbDep):
         )
     except Exception:
         return HTMLResponse("Not found", status_code=404)
-    connections = db.scalars(
-        select(models.PlatformConnection).where(
-            models.PlatformConnection.business_id == business_id
-        )
-    ).all()
+    try:
+        connections = db.scalars(
+            select(models.PlatformConnection).where(
+                models.PlatformConnection.business_id == business_id
+            )
+        ).all()
+    except Exception:
+        connections = []
+        with contextlib.suppress(Exception):
+            db.rollback()
     return templates.TemplateResponse(
         request,
         "business_detail.html",
@@ -443,9 +762,14 @@ def products_page(
             parsed_state = enums.ProductLifecycle(state)
         except ValueError:
             parsed_state = None
-    products = products_svc.list_products(
-        db, business_id=business_id, state=parsed_state, q=q
-    )
+    try:
+        products = products_svc.list_products(
+            db, business_id=business_id, state=parsed_state, q=q
+        )
+    except Exception:
+        products = []
+        with contextlib.suppress(Exception):
+            db.rollback()
     return templates.TemplateResponse(
         request,
         "products.html",
@@ -479,12 +803,17 @@ def product_detail_page(
         )
     except Exception:
         return HTMLResponse("Not found", status_code=404)
-    product = db.scalar(
-        select(models.Product).where(
-            models.Product.product_id == product_id,
-            models.Product.business_id == business_id,
+    try:
+        product = db.scalar(
+            select(models.Product).where(
+                models.Product.product_id == product_id,
+                models.Product.business_id == business_id,
+            )
         )
-    )
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return HTMLResponse("DB error - run migrations", status_code=500)
     if not product:
         return HTMLResponse("Product not found", status_code=404)
     return templates.TemplateResponse(
@@ -515,12 +844,21 @@ def sync_jobs_partial(request: Request, business_id: uuid.UUID, db: DbDep):
         )
     except Exception:
         return HTMLResponse("", status_code=404)
-    jobs = db.scalars(
-        select(models.SyncJob)
-        .where(models.SyncJob.business_id == business_id)
-        .order_by(models.SyncJob.created_at.desc())
-        .limit(10)
-    ).all()
+    try:
+        jobs = db.scalars(
+            select(models.SyncJob)
+            .where(models.SyncJob.business_id == business_id)
+            .order_by(models.SyncJob.created_at.desc())
+            .limit(10)
+        ).all()
+    except Exception:
+        # Table missing or connection lost - return graceful empty
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return HTMLResponse(
+            "<ul class='sync-list'>"
+            "<li class='muted'>همگام‌سازی (DB خطا)</li></ul>"
+        )
     html = "<ul class='sync-list'>"
     for j in jobs:
         status = html_lib.escape(str(j.status))
@@ -555,15 +893,24 @@ def notifications_partial(
         )
     except Exception:
         return HTMLResponse("", status_code=404)
-    notifs = db.scalars(
-        select(models.Notification)
-        .where(
-            models.Notification.business_id == business_id,
-            models.Notification.recipient_user_id == user.user_id,
+    try:
+        notifs = db.scalars(
+            select(models.Notification)
+            .where(
+                models.Notification.business_id == business_id,
+                models.Notification.recipient_user_id == user.user_id,
+            )
+            .order_by(models.Notification.created_at.desc())
+            .limit(10)
+        ).all()
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        # Graceful fallback when notifications table missing (old migration)
+        return HTMLResponse(
+            "<ul class='notif-list'>"
+            "<li class='muted'>اعلان‌ها (نیاز به migration)</li></ul>"
         )
-        .order_by(models.Notification.created_at.desc())
-        .limit(10)
-    ).all()
     html = "<ul class='notif-list'>"
     for n in notifs:
         title = html_lib.escape(str(n.title))
@@ -600,14 +947,21 @@ def publications_partial(
         )
     except Exception:
         return HTMLResponse("", status_code=404)
-    stmt = select(models.Publication).where(
-        models.Publication.business_id == business_id
-    )
-    if product_id:
-        stmt = stmt.where(models.Publication.product_id == product_id)
-    pubs = db.scalars(
-        stmt.order_by(models.Publication.created_at.desc()).limit(20)
-    ).all()
+    try:
+        stmt = select(models.Publication).where(
+            models.Publication.business_id == business_id
+        )
+        if product_id:
+            stmt = stmt.where(models.Publication.product_id == product_id)
+        pubs = db.scalars(
+            stmt.order_by(models.Publication.created_at.desc()).limit(20)
+        ).all()
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        return HTMLResponse(
+            "<table class='table'><tr><td class='muted'>انتشارها (DB خطا)</td></tr></table>"
+        )
     html = (
         "<table class='table'><tr><th>وضعیت</th>"
         "<th>اتصال</th><th>پیام</th></tr>"

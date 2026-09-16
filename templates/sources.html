@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}منابع — {{ business.business_name }}{% endblock %}
+{% block content %}
+<h1>منابع — {{ business.business_name }}</h1>
+
+{% if warning %}
+<div class="flash flash-error" style="white-space:pre-wrap">{{ warning }}</div>
+{% endif %}
+{% if error %}
+<div class="flash flash-error">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:2rem;">
+    <h3>ساخت منبع جدید</h3>
+    <p class="muted">برای Excel فایل را بعداً در صفحه جزئیات منبع آپلود کنید. برای Google Sheets لینک شیت را وارد کنید.</p>
+    <form method="post" action="/web/businesses/{{ business.business_id }}/sources" class="form">
+        <div class="form-group">
+            <label>نام منبع</label>
+            <input type="text" name="name" required placeholder="مثلا: لیست اصلی محصولات">
+        </div>
+        <div class="form-group">
+            <label>نوع منبع</label>
+            <select name="kind" required>
+                <option value="EXCEL_UPLOAD">Excel / XLSX آپلود</option>
+                <option value="GOOGLE_SHEETS">Google Sheets</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>لینک Google Sheets (فقط برای نوع Google Sheets)</label>
+            <input type="text" name="external_ref" placeholder="https://docs.google.com/spreadsheets/d/...">
+        </div>
+        <div class="form-group">
+            <label>نام شیت (اختیاری)</label>
+            <input type="text" name="sheet_name" placeholder="Sheet1">
+        </div>
+        <button type="submit" class="btn btn-primary">ساخت منبع</button>
+    </form>
+</div>
+
+<h2>لیست منابع</h2>
+{% if sources %}
+<table class="table">
+    <tr><th>نام</th><th>نوع</th><th>وضعیت</th><th>آخرین همگام‌سازی</th><th>عملیات</th></tr>
+    {% for s in sources %}
+    <tr>
+        <td>{{ s.name }}</td>
+        <td><span class="badge">{{ s.kind }}</span></td>
+        <td>{{ s.status }}</td>
+        <td class="muted">{{ s.last_sync_at or '—' }}</td>
+        <td><a href="/web/businesses/{{ business.business_id }}/sources/{{ s.source_id }}" class="btn btn-sm">مدیریت</a></td>
+    </tr>
+    {% endfor %}
+</table>
+{% else %}
+<p class="muted">هنوز منبعی نساخته‌اید. از فرم بالا شروع کنید.</p>
+{% endif %}
+
+<div style="margin-top:2rem;">
+    <a href="/web/businesses/{{ business.business_id }}" class="btn">بازگشت به مدیریت کسب‌وکار</a>
+    <a href="/web/businesses/{{ business.business_id }}/products" class="btn">محصولات</a>
+</div>
+{% endblock %}
