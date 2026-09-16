@@ -12,7 +12,7 @@ import uuid
 from collections.abc import Callable, Generator
 from typing import Annotated
 
-from fastapi import Cookie, Depends, Path, Request
+from fastapi import Depends, Path, Request
 from sqlalchemy.orm import Session
 
 from app.application import auth
@@ -52,13 +52,17 @@ def apply_correlation_id(request: Request, correlation_id: str | None = None) ->
     return request.state.correlation_id
 
 
-def current_user(
-    request: Request,
-    db: Db,
-    ai_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
-) -> User:
-    """Resolve the authenticated user from the session cookie, or 401."""
-    resolved = auth.resolve_session(db, ai_session)
+def current_user(request: Request, db: Db) -> User:
+    """Resolve the authenticated user from the session cookie, or 401.
+
+    Reads cookie directly via request.cookies (robust) instead of Cookie()
+    dependency which proved fragile under duplicate Cookie headers /
+    0.0.0.0 host in docker+uvicorn (same root cause as web login loop).
+    """
+    token = request.cookies.get(SESSION_COOKIE) or request.cookies.get(
+        get_settings().session_cookie_name
+    )
+    resolved = auth.resolve_session(db, token)
     if resolved is None:
         raise AuthenticationError("Not authenticated")
     user, _session = resolved
