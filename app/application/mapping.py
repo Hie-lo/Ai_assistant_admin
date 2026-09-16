@@ -226,6 +226,20 @@ def suggest_entries(headers: list[str]) -> list[SuggestedEntry]:
     # First pass: exact matches
     for column, n in normalized_headers:
         if not n:
+            # Empty header - still keep as CUSTOM to preserve index alignment
+            entries.append(
+                SuggestedEntry(
+                    column=column,
+                    canonical_field=None,
+                    field_kind=enums.FieldKind.CUSTOM.value,
+                    field_type=enums.FieldType.STRING.value,
+                    display_name=column or "empty",
+                    required=False,
+                    template_exposed=False,
+                    confidence=0.0,
+                    evidence="empty header",
+                )
+            )
             continue
         field = _ALIAS_TABLE_LOOKUP.get(n)
         if field and field not in taken:
