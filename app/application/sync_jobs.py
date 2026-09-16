@@ -150,6 +150,28 @@ def retry_or_exhaust(
     return True
 
 
+def fail_final(
+    db: Session,
+    job: models.SyncJob,
+    *,
+    error: str,
+    now: datetime | None = None,
+) -> None:
+    now = now or datetime.now(UTC)
+    job.status = enums.SyncJobStatus.FAILED_FINAL.value
+    job.failure_summary = error[:1000]
+    job.finished_at = now
+    job.heartbeat_at = None
+    from app.application.notifications import notify_sync_failure
+
+    notify_sync_failure(
+        db,
+        job=job,
+        kind=enums.NotificationKind.SYNC_FAILED_FINAL,
+        error=error,
+    )
+
+
 def heartbeat(job: models.SyncJob, *, now: datetime | None = None) -> None:
     if job.status == enums.SyncJobStatus.RUNNING.value:
         job.heartbeat_at = now or datetime.now(UTC)

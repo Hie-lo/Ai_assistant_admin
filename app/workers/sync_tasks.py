@@ -5,7 +5,7 @@ import uuid
 
 from celery import shared_task
 
-from app.application import import_pipeline, sync_jobs
+from app.application import entitlements, import_pipeline, sync_jobs
 from app.application.mapping import active_mapping_for
 from app.domain import enums
 from app.domain.sync_policy import SyncPolicy
@@ -51,6 +51,9 @@ def run_sync_job(self, sync_id: str) -> dict:
             db.commit()
             return {"sync_id": sync_id, "status": job.status}
 
+        entitlements.require_entitlement_unchecked(
+            db, business_id=job.business_id
+        )
         outcome = import_pipeline.run_import(
             db,
             source=source,
@@ -70,6 +73,13 @@ def run_sync_job(self, sync_id: str) -> dict:
         )
         db.commit()
         return {"sync_id": sync_id, "status": job.status, "counts": job.counts}
+    except entitlements.EntitlementDenied as exc:
+        db.rollback()
+        job = db.get(models.SyncJob, uuid.UUID(sync_id))
+        if job is not None:
+            sync_jobs.fail_final(db, job, error=str(exc))
+            db.commit()
+        return {"sync_id": sync_id, "status": enums.SyncJobStatus.FAILED_FINAL.value}
     except Exception as exc:  # noqa: BLE001 - durable retry policy handles it
         db.rollback()
         job = db.get(models.SyncJob, uuid.UUID(sync_id))
