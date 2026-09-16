@@ -250,6 +250,54 @@ def businesses_list(request: Request, db: DbDep):
     )
 
 
+@router.get("/businesses/new", response_class=HTMLResponse)
+def businesses_new_redirect(request: Request, db: DbDep):
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    return RedirectResponse(url="/web/businesses", status_code=302)
+
+
+@router.post("/businesses", response_class=HTMLResponse)
+def businesses_create(
+    request: Request,
+    db: DbDep,
+    name: Annotated[str, Form()],
+    business_type_key: Annotated[str, Form()],
+):
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business = biz_svc.create_business(
+            db,
+            user=user,
+            name=name.strip(),
+            business_type_key=business_type_key.strip(),
+        )
+        db.commit()
+        return RedirectResponse(
+            url=f"/web/businesses/{business.business_id}", status_code=302
+        )
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        businesses = biz_svc.list_businesses(db, user=user)
+        btypes = db.scalars(select(models.BusinessType)).all()
+        return templates.TemplateResponse(
+            request,
+            "businesses.html",
+            {
+                "current_user": user,
+                "businesses": businesses,
+                "business_types": btypes,
+                "error": str(exc)[:300],
+                "version": __version__,
+            },
+            status_code=400,
+        )
+
+
 @router.get("/businesses/{business_id}", response_class=HTMLResponse)
 def business_detail(request: Request, business_id: uuid.UUID, db: DbDep):
     user = _current_user_from_cookie(request, db)
@@ -270,6 +318,97 @@ def business_detail(request: Request, business_id: uuid.UUID, db: DbDep):
             },
             status_code=404,
         )
+    return templates.TemplateResponse(
+        request,
+        "business_detail.html",
+        {
+            "current_user": user,
+            "business": business,
+            "version": __version__,
+        },
+    )
+
+
+@router.get(
+    "/businesses/{business_id}/sources", response_class=HTMLResponse
+)
+def business_sources(request: Request, business_id: uuid.UUID, db: DbDep):
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
+    sources = db.scalars(
+        select(models.Source).where(models.Source.business_id == business_id)
+    ).all()
+    # Simple list rendering via template fallback to business_detail with extra context
+    return templates.TemplateResponse(
+        request,
+        "business_detail.html",
+        {
+            "current_user": user,
+            "business": business,
+            "sources": sources,
+            "extra_section": "sources",
+            "version": __version__,
+        },
+    )
+
+
+@router.get(
+    "/businesses/{business_id}/connections", response_class=HTMLResponse
+)
+def business_connections(request: Request, business_id: uuid.UUID, db: DbDep):
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
+    connections = db.scalars(
+        select(models.PlatformConnection).where(
+            models.PlatformConnection.business_id == business_id
+        )
+    ).all()
+    return templates.TemplateResponse(
+        request,
+        "business_detail.html",
+        {
+            "current_user": user,
+            "business": business,
+            "connections": connections,
+            "extra_section": "connections",
+            "version": __version__,
+        },
+    )
+
+
+@router.get(
+    "/businesses/{business_id}/billing", response_class=HTMLResponse
+)
+@router.get(
+    "/businesses/{business_id}/members", response_class=HTMLResponse
+)
+@router.get(
+    "/businesses/{business_id}/publications", response_class=HTMLResponse
+)
+def business_generic_tab(request: Request, business_id: uuid.UUID, db: DbDep):
+    user = _current_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/web/login", status_code=302)
+    try:
+        business, _ = biz_svc.require_business_access(
+            db, user=user, business_id=business_id
+        )
+    except Exception:
+        return HTMLResponse("Not found", status_code=404)
     return templates.TemplateResponse(
         request,
         "business_detail.html",

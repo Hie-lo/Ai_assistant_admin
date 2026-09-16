@@ -3,7 +3,11 @@
 {% block content %}
 <h1>کسب‌وکارها</h1>
 
-<form method="post" action="/api/v1/businesses" id="create-business-form" class="card" style="margin-bottom:2rem;">
+{% if error %}
+<div class="flash flash-error">{{ error }}</div>
+{% endif %}
+
+<form method="post" action="/web/businesses" id="create-business-form" class="card" style="margin-bottom:2rem;">
     <h3>ساخت کسب‌وکار جدید</h3>
     <div class="form-group">
         <label>نام کسب‌وکار</label>
