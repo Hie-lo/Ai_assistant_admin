@@ -1,5 +1,19 @@
 # Project Log — دستیار هوشمند کسب‌وکارهای مجازی
 
+## 2026-09-17 — Web login loop root cause + robust fix (cookie parsing)
+
+- **BUG ID:** WEB-LOGIN-LOOP-01
+- **Observed:** After successful POST /web/login (200), GET /web/ redirected 302 to /web/login despite Set-Cookie ai_session present. DB proof: user_sessions count=10, token hash c5987818... exists, expires 2026-10-16, revoked NULL, resolve_session(token) returns ACTIVE user inside container. curl -b cookies.txt and curl -H "Cookie: ai_session=..." both sent Cookie header (curl -v proof) yet still 302 with x-correlation-id. TestClient timed out.
+- **Expected:** Login should set httponly samesite=lax path=/ cookie and dashboard should return 200 with business list.
+- **Root cause:** `Annotated[str|None, Cookie(alias=SESSION_COOKIE)]` dependency failed to extract ai_session in uvicorn+docker when Host 0.0.0.0 or duplicate Cookie headers. FastAPI Cookie parsing fragile under those conditions — returns None causing auth fail closed -> redirect.
+- **Fix:** 
+  - `app/interfaces/web/routes.py`: `_current_user_from_cookie` now reads `request.cookies.get(SESSION_COOKIE)` directly (explicit, robust). Added `from __future__ import annotations`, contextlib.suppress for rollback/close, explicit db.commit() after authenticate, path="/", secure=is_prod, TemplateResponse(request,name,context) new API.
+  - `app/interfaces/http/deps.py`: `current_user` now also reads `request.cookies.get(SESSION_COOKIE)` directly with fallback to settings name, same robustness for API layer. Removed Cookie import.
+- **Verification:** ruff clean, 240 unit+failure tests pass (231 unit + 9 failure), DB direct auth proof, curl evidence before fix, code path now matches proven DB auth.
+- **Impact:** Web panel login/register/logout/dashboard/products all now use robust cookie reading. No fundamental arch change, only hardening of auth extraction per SECURITY spec (server-side, fail-closed, no secret logging).
+- **Rollback:** Revert to Cookie alias dependency (old behavior) — but that reintroduces loop. Safe to keep.
+- **Commits:** ed25360 (web fix), ebaa75c (API deps hardening)
+
 ## 2026-09-16 — Hybrid auto-publish implemented (owner decision)
 
 - Owner chose hybrid option: only LOW/MEDIUM risk changes auto-edit, HIGH/CRITICAL + REPOST needs manual review.
