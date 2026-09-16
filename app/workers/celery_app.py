@@ -18,7 +18,7 @@ celery = Celery(
     settings.app_name,
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
-    include=["app.workers.tasks"],
+    include=["app.workers.tasks", "app.workers.sync_tasks"],
 )
 
 celery.conf.update(
