@@ -42,6 +42,20 @@ def create_business(
     if btype is None or not btype.is_active:
         raise ValidationError("Unknown or inactive business type")
 
+    # Prevent duplicate business name for same user (idempotency for double-click)
+    existing = db.scalars(
+        select(Business)
+        .join(Membership, Membership.business_id == Business.business_id)
+        .where(
+            Membership.user_id == user.user_id,
+            Membership.status == enums.MembershipStatus.ACTIVE.value,
+            Business.business_name.ilike(name),
+        )
+    ).first()
+    if existing is not None:
+        # Return existing instead of creating duplicate (customer-friendly)
+        return existing
+
     business = Business(business_name=name, business_type_key=business_type_key)
     db.add(business)
     db.flush()

@@ -21,9 +21,10 @@
     </div>
 </div>
 
-<div class="tabs" style="margin-bottom:1.5rem;">
+<div class="tabs" style="margin-bottom:1.5rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
     <a href="/web/businesses/{{ business.business_id }}/products" class="tab">📦 محصولات</a>
     <a href="/web/businesses/{{ business.business_id }}/sources" class="tab">📥 منابع</a>
+    <a href="/web/businesses/{{ business.business_id }}/presets" class="tab" style="background:#fef3c7; border-color:#fcd34d;">🎨 قالب‌ها {% if has_gold %}⭐{% endif %}</a>
     <a href="/web/businesses/{{ business.business_id }}/connections" class="tab">🔗 اتصالات</a>
     <a href="/web/businesses/{{ business.business_id }}/publications" class="tab">📤 انتشارها</a>
     <a href="/web/businesses/{{ business.business_id }}/billing" class="tab">💳 اشتراک</a>
@@ -81,6 +82,87 @@
     <h3 style="margin-bottom:1rem;">📤 انتشارها</h3>
     <div hx-get="/web/businesses/{{ business.business_id }}/publications/partial" hx-trigger="load" style="min-height:100px;">
         در حال بارگذاری...
+    </div>
+</div>
+{% elif request.path.endswith('/presets') %}
+<div class="card">
+    <h3 style="margin-bottom:1rem;">🎨 قالب‌های محصول — {{ business.business_type_key }} {% if has_gold %}<span class="badge" style="background:#f59e0b; color:white;">طلایی ⭐</span>{% endif %}</h3>
+    {% if has_custom_mapping %}
+    <div style="padding:0.75rem; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:0.5rem; margin-bottom:1rem; font-size:0.9rem;">
+        ✅ شما دسترسی به نگاشت سفارشی پیشرفته دارید (پلن طلایی) — می‌توانید مقادیر شیت را به متن دلخواه تبدیل کنید. مثلاً شیت <code>yes</code> → <code>دارای تاچ اسکرین</code>، <code>no</code> → مخفی یا متن دیگر.
+    </div>
+    {% else %}
+    <div style="padding:0.75rem; background:#fef3c7; border:1px solid #fcd34d; border-radius:0.5rem; margin-bottom:1rem; font-size:0.9rem;">
+        💡 برای استفاده از نگاشت سفارشی پیشرفته (مثلاً <code>touch: yes → موجود / دارای قابلیت touch</code>) به پلن طلایی ارتقا دهید. قالب فعلی ساده است اما قابل استفاده.
+    </div>
+    {% endif %}
+
+    {% if preset_versions %}
+        {% for preset, version in preset_versions %}
+        <div style="border:1px solid var(--border); border-radius:0.75rem; padding:1rem; margin-bottom:1rem; background:#f8fafc;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+                <div>
+                    <strong>📋 {{ preset.name }}</strong> <span class="muted" style="font-size:0.85rem;">v{{ version.version }} — {{ version.status }}</span><br>
+                    <span class="muted" style="font-size:0.85rem;">{{ preset.description }}</span>
+                </div>
+                <span class="badge" style="background:#10b981; color:white;">فعال</span>
+            </div>
+            <div style="margin-top:1rem;">
+                <strong style="font-size:0.9rem;">بلوک‌های قالب:</strong>
+                <div style="margin-top:0.5rem; max-height:400px; overflow-y:auto; background:white; border:1px solid var(--border); border-radius:0.5rem; padding:0.75rem;">
+                    {% for block in version.blocks %}
+                    <div style="padding:0.5rem; border-bottom:1px dashed #e5e7eb; font-size:0.85rem;">
+                        <span class="badge" style="font-size:0.7rem; background:#e0e7ff; color:#4338ca;">{{ block.type }}</span>
+                        <code style="font-size:0.8rem; background:#f1f5f9; padding:0.1rem 0.3rem; border-radius:0.25rem;">{{ block.id }}</code>
+                        {% if block.type == 'CUSTOM_FIELD' %}
+                            — <strong>{{ block.payload.key }}</strong> ({{ block.payload.display_name }})
+                            {% if block.payload.value_map %}
+                                <br><span style="margin-left:1rem; color:#059669;">🔄 نگاشت: {{ block.payload.value_map }}</span>
+                                {% if block.payload.hide_on %}<span style="color:#dc2626;"> — مخفی اگر: {{ block.payload.hide_on }}</span>{% endif %}
+                            {% endif %}
+                        {% elif block.type == 'STATIC_TEXT' %}
+                            — {{ block.payload.text[:80] }}
+                        {% elif block.type == 'AI_OUTPUT' %}
+                            — 🤖 {{ block.payload.key }}
+                        {% else %}
+                            — {{ block.payload.text|default('')[:60] }}
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% if has_custom_mapping %}
+            <div style="margin-top:1rem; padding:0.75rem; background:#fffbeb; border:1px solid #fcd34d; border-radius:0.5rem;">
+                <strong style="font-size:0.85rem;">⚙️ ویرایش نگاشت سفارشی (طلایی):</strong><br>
+                <span style="font-size:0.8rem;" class="muted">برای فیلدهایی مثل Touch می‌توانید نگاشت تعریف کنید. مثال: اگر شیت مقدار <code>yes</code> دارد، نمایش <code>دارای تاچ اسکرین</code>، اگر <code>no</code> دارد، مخفی شود یا <code>بدون تاچ</code> نمایش داده شود.</span>
+                <div style="margin-top:0.5rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+                    <code style="font-size:0.75rem; background:white; padding:0.5rem; border-radius:0.25rem; border:1px solid #e5e7eb;">
+                        {"key": "Touch", "value_map": {"yes": "دارای تاچ اسکرین", "no": ""}, "hide_on": ["no"]}
+                    </code>
+                </div>
+                <a href="/api/docs" class="btn btn-sm btn-outline" style="margin-top:0.5rem;">📚 ویرایش از طریق API (پیشرفته)</a>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="empty-state" style="border:none; padding:2rem;">
+            <div class="icon">🎨</div>
+            <h3>قالب یافت نشد</h3>
+            <p class="muted">برای نوع کسب‌وکار {{ business.business_type_key }} هنوز قالب پیش‌فرض ساخته نشده — migrations را اجرا کنید: <code>alembic upgrade head</code></p>
+        </div>
+    {% endif %}
+
+    <div style="margin-top:1.5rem; padding:1rem; background:#f1f5f9; border-radius:0.5rem;">
+        <strong style="font-size:0.9rem;">💡 راهنمای قالب انعطاف‌پذیر:</strong>
+        <ul style="font-size:0.85rem; margin-top:0.5rem; line-height:1.8;" class="muted">
+            <li>قالب <strong>per business_type</strong> است — برای <code>computer</code> قالب تخصصی لپ‌تاپ، برای <code>general</code> قالب ساده.</li>
+            <li>می‌توانید ستون سفارشی اضافه کنید (مثلاً <code>touch</code>) و در قالب از <code>{attr.touch}</code> یا بلوک <code>CUSTOM_FIELD</code> با کلید <code>touch</code> استفاده کنید.</li>
+            <li>برای نگاشت مقادیر: در بلوک <code>CUSTOM_FIELD</code>، <code>value_map</code> تعریف کنید: <code>yes → موجود / دارای قابلیت touch</code>، <code>no → مخفی یا متن دیگر</code>.</li>
+            <li>برای مخفی کردن: <code>hide_on: ["no", "false", "0", ""]</code> — اگر مقدار شیت این‌ها باشد، بلوک نمایش داده نمی‌شود.</li>
+            <li>مثال Touch: <code>value_map: {"yes": "دارای تاچ اسکرین", "no": ""}, hide_on: ["no"]</code> → اگر yes باشد "دارای تاچ اسکرین" نشان می‌دهد، اگر no باشد مخفی می‌کند.</li>
+            <li>این قابلیت برای مشتریان پلن طلایی هم فعال است (per user requirement).</li>
+        </ul>
     </div>
 </div>
 {% else %}

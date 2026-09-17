@@ -177,24 +177,29 @@ def _parse_stock(value: str) -> int | None:
 
 
 def _generate_name_from_attrs(core: dict, attrs: dict) -> str | None:
-    """Generate product name from Brand+Model if name is missing."""
-    # Check if we have Brand and Model in attrs or core
+    """Generate product name from Brand+Model if name is missing or generic."""
     brand = None
     model = None
     # Look in attrs first (custom fields)
     for k, v in attrs.items():
         kn = k.lower()
         if "brand" in kn or "برند" in kn:
-            brand = v
+            brand = str(v).strip()
         if kn == "model" or "model" in kn or "مدل" in kn:
             if not model:
-                model = v
+                model = str(v).strip()
     # Also check core for category that might be brand
     if not brand and core.get("category"):
-        # If category looks like brand (single word, known brands)
-        cat = core.get("category", "")
+        cat = str(core.get("category", "")).strip()
         if cat and len(cat.split()) <= 2:
             brand = cat
+    # Also check if core has sku that looks like model (e.g., V130)
+    if not model and core.get("sku"):
+        sku = str(core.get("sku")).strip()
+        # If sku looks like model (not just numeric, contains letters/numbers)
+        if sku and len(sku) >= 2 and len(sku) <= 20:
+            model = sku
+
     if brand and model:
         return f"{brand} {model}".strip()
     if brand:
@@ -202,6 +207,19 @@ def _generate_name_from_attrs(core: dict, attrs: dict) -> str | None:
     if model:
         return model
     return None
+
+
+def _improve_name_if_generic(core: dict, attrs: dict) -> None:
+    """If core name is just Brand (single word) and we have Model, upgrade to Brand+Model to avoid duplicates."""
+    name = core.get("name")
+    if not name:
+        return
+    name_str = str(name).strip()
+    # If name is single word (likely Brand only) and we have model, combine
+    if len(name_str.split()) <= 1:
+        improved = _generate_name_from_attrs(core, attrs)
+        if improved and improved != name_str and len(improved) > len(name_str):
+            core["name"] = improved
 
 
 def extract_row(
@@ -252,6 +270,9 @@ def extract_row(
         generated = _generate_name_from_attrs(core, attrs)
         if generated:
             core["name"] = generated
+    else:
+        # Improve generic names like "Lenovo" -> "Lenovo V130" to avoid duplicates
+        _improve_name_if_generic(core, attrs)
 
     # Auto-generate description from Des + other specs if description missing
     if not core.get("description"):

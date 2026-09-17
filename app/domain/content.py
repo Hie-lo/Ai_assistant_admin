@@ -258,17 +258,106 @@ def _render_block(block: ContentBlock, ctx: RenderContext) -> RenderedBlock:
             warnings.append(f"{block.block_id}: missing product field '{field_name}'")
     elif block.type is BlockType.CUSTOM_FIELD:
         key = str(p.get("key") or "")
-        value = ctx.attributes.get(key)
-        if value is None:
+        raw_value = ctx.attributes.get(key)
+        if raw_value is None:
             warnings.append(f"{block.block_id}: missing custom field '{key}'")
             text = ""
-        elif isinstance(value, (dict, list)):
-            text = json.dumps(value, ensure_ascii=False)
         else:
-            text = str(value).strip()
+            # Handle dict/list
+            if isinstance(raw_value, (dict, list)):
+                raw_str = json.dumps(raw_value, ensure_ascii=False)
+            else:
+                raw_str = str(raw_value).strip()
+
+            # --- Flexible value mapping (golden plan feature) ---
+            # payload can contain:
+            # - value_map: dict mapping lowercased raw values to custom text
+            #   e.g., {"yes": "دارای تاچ", "no": "بدون تاچ"}
+            # - hide_on: list of values (lowercased) that hide the block entirely
+            #   e.g., ["no", "false", "0", ""]
+            # - show_only_if: list of values that must match to show (inverse of hide_on)
+            # - true_text / false_text: for boolean-like fields
+            # - hide_if_empty: bool (default True for custom fields with mapping)
+            value_map = p.get("value_map") or {}
+            hide_on = [str(x).lower() for x in (p.get("hide_on") or [])]
+            show_only_if = [str(x).lower() for x in (p.get("show_only_if") or [])]
+            true_text = p.get("true_text")
+            false_text = p.get("false_text")
+            hide_if_empty = p.get("hide_if_empty", True)
+
+            normalized = raw_str.lower()
+
+            # Check hide_on first
+            if normalized in hide_on:
+                text = ""
+            elif show_only_if and normalized not in show_only_if:
+                text = ""
+            else:
+                # Apply value_map
+                mapped = None
+                if isinstance(value_map, dict):
+                    # Try exact, then lowercased
+                    if raw_str in value_map:
+                        mapped = value_map[raw_str]
+                    elif normalized in value_map:
+                        mapped = value_map[normalized]
+                    # Also try case-insensitive keys
+                    else:
+                        for k, v in value_map.items():
+                            if str(k).lower() == normalized:
+                                mapped = v
+                                break
+
+                # Boolean handling
+                if mapped is None and (true_text is not None or false_text is not None):
+                    # Consider yes/true/1/موجود as true
+                    truthy = {"yes", "true", "1", "موجود", "دارد", "فعال", "enabled", "available"}
+                    falsy = {"no", "false", "0", "ناموجود", "ندارد", "غیرفعال", "disabled", "ن"}
+                    if normalized in truthy and true_text is not None:
+                        mapped = true_text
+                    elif normalized in falsy and false_text is not None:
+                        # If false_text is empty string, hide
+                        if false_text == "":
+                            text = ""
+                            mapped = ""  # will be handled as hidden
+                        else:
+                            mapped = false_text
+
+                if mapped is not None:
+                    text = str(mapped).strip()
+                    # If mapped to empty and hide_if_empty, hide
+                    if not text and hide_if_empty:
+                        text = ""
+                else:
+                    text = raw_str
+
+                # If still empty and hide_if_empty, hide
+                if not text and hide_if_empty:
+                    text = ""
+
+        # Apply display_name prefix if not already mapped with custom logic
+        # If value_map was used, display_name is still applied unless payload says no_prefix
         display = str(p.get("display_name") or "").strip()
-        if text and display:
-            text = f"{display}: {text}"
+        no_prefix = p.get("no_prefix", False)
+        if text and display and not no_prefix:
+            # If text already contains display (because value_map includes it), don't double prefix
+            # Simple heuristic: if display is emoji and text doesn't start with emoji, prefix
+            # For flexibility, we always prefix with display + ": " unless display is emoji-only and user wants no colon
+            # Check if payload has custom separator
+            sep = p.get("separator", ": ")
+            # If display is emoji (contains no alphanumeric), use space not colon for cleaner look
+            # e.g., "🧠CPU" + ": " + "i5" vs "⭐️" + "A"
+            if any(c.isalnum() for c in display):
+                # Display has alphanumeric, use separator
+                text = f"{display}{sep}{text}"
+            else:
+                # Emoji only, just concat or with space
+                # Allow custom handling: if separator is explicitly set, use it
+                if "separator" in p:
+                    text = f"{display}{sep}{text}"
+                else:
+                    # Emoji + value without colon, like ⭐️A
+                    text = f"{display}{text}" if display else text
     elif block.type is BlockType.AI_OUTPUT:
         key = str(p.get("key") or "")
         text = (ctx.ai_outputs.get(key) or "").strip()

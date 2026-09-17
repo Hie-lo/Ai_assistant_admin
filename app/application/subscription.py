@@ -134,8 +134,8 @@ def create_plan(db: Session, *, actor: User, fields: dict) -> Plan:
     )
     if plan.billing_period not in ("monthly",):
         raise ValidationError("billing_period must be 'monthly' in V1")
-    if plan.preset_customization not in ("none", "basic", "full"):
-        raise ValidationError("preset_customization must be none|basic|full")
+    if plan.preset_customization not in ("none", "basic", "full", "advanced"):
+        raise ValidationError("preset_customization must be none|basic|full|advanced")
     if plan.report_level not in ("none", "basic", "full"):
         raise ValidationError("report_level must be none|basic|full")
     db.add(plan)

@@ -33,12 +33,13 @@ router = APIRouter(prefix="/web", tags=["web-panel"])
 
 
 def _get_db() -> Session:
+    """Yield a DB session without auto-commit — explicit commit in handlers only."""
     factory = get_session_factory()
     db = factory()
     try:
         yield db
-        with contextlib.suppress(Exception):
-            db.commit()
+        # No auto-commit: handlers must commit explicitly to avoid double-commit
+        # and duplicate creation on double-click.
     except Exception:
         with contextlib.suppress(Exception):
             db.rollback()
@@ -1756,6 +1757,9 @@ def business_connections(request: Request, business_id: uuid.UUID, db: DbDep):
 @router.get(
     "/businesses/{business_id}/publications", response_class=HTMLResponse
 )
+@router.get(
+    "/businesses/{business_id}/presets", response_class=HTMLResponse
+)
 def business_generic_tab(request: Request, business_id: uuid.UUID, db: DbDep):
     user = _current_user_from_cookie(request, db)
     if not user:
@@ -1766,12 +1770,58 @@ def business_generic_tab(request: Request, business_id: uuid.UUID, db: DbDep):
         )
     except Exception:
         return HTMLResponse("Not found", status_code=404)
+
+    # Load presets for this business type
+    presets = []
+    preset_versions = []
+    try:
+        presets = db.scalars(
+            select(models.Preset).where(
+                models.Preset.business_type_key == business.business_type_key
+            )
+        ).all()
+        # Load active versions
+        for p in presets:
+            av = db.scalar(
+                select(models.PresetVersion).where(
+                    models.PresetVersion.preset_id == p.preset_id,
+                    models.PresetVersion.status == "ACTIVE",
+                )
+            )
+            if av:
+                preset_versions.append((p, av))
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        presets = []
+        preset_versions = []
+
+    # Check entitlement for gold feature
+    try:
+        from app.application import entitlements as ent_svc
+
+        ent = ent_svc.get_entitlements(db, business_id=business.business_id)
+        has_gold = ent.has_active and (
+            ent.product_preset_eligible or ent.preset_customization in ("advanced", "full")
+        )
+        feature_flags = ent.feature_flags or {}
+        has_custom_mapping = feature_flags.get("custom_value_mapping", False) or has_gold
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        has_gold = False
+        has_custom_mapping = False
+
     return templates.TemplateResponse(
         request,
         "business_detail.html",
         {
             "current_user": user,
             "business": business,
+            "presets": presets,
+            "preset_versions": preset_versions,
+            "has_gold": has_gold,
+            "has_custom_mapping": has_custom_mapping,
             "version": __version__,
         },
     )
@@ -1876,7 +1926,11 @@ def source_delete(
     source_id: uuid.UUID,
     db: DbDep,
 ):
-    """Delete/archive a source. Hard delete if no import runs, otherwise soft archive."""
+    """Delete a source — full hard delete with all mappings/records/runs (user-friendly).
+
+    Previously we archived if it had runs, but user feedback says full delete is better
+    than FK violation errors. If user wants to keep history, they can archive manually via API.
+    """
     user = _current_user_from_cookie(request, db)
     if not user:
         return RedirectResponse(url="/web/login", status_code=302)
@@ -1907,36 +1961,74 @@ def source_delete(
         return HTMLResponse("Source not found", status_code=404)
 
     try:
-        # Check if source has import runs or products linked
-        has_runs = db.scalar(
-            select(models.ImportRun).where(models.ImportRun.source_id == source_id).limit(1)
-        )
-        if has_runs:
-            # Soft delete: archive
-            source.status = enums.SourceStatus.ARCHIVED.value
+        # Full cascade delete in correct order to avoid FK violations
+        # Use SAVEPOINTs for robustness
+        try:
+            with db.begin_nested():
+                # Delete source_records
+                for r in db.scalars(
+                    select(models.SourceRecord).where(models.SourceRecord.source_id == source_id)
+                ).all():
+                    db.delete(r)
+        except Exception:
+            pass
+        try:
+            with db.begin_nested():
+                # Delete mappings
+                for m in db.scalars(
+                    select(models.SourceMapping).where(models.SourceMapping.source_id == source_id)
+                ).all():
+                    db.delete(m)
+        except Exception:
+            pass
+        try:
+            with db.begin_nested():
+                # Delete import runs
+                for run in db.scalars(
+                    select(models.ImportRun).where(models.ImportRun.source_id == source_id)
+                ).all():
+                    db.delete(run)
+        except Exception:
+            pass
+        try:
+            with db.begin_nested():
+                # Delete sync jobs
+                for job in db.scalars(
+                    select(models.SyncJob).where(models.SyncJob.source_id == source_id)
+                ).all():
+                    db.delete(job)
+        except Exception:
+            pass
+        try:
+            with db.begin_nested():
+                # Delete review cases linked to this source
+                for case in db.scalars(
+                    select(models.ReviewCase).where(models.ReviewCase.source_id == source_id)
+                ).all():
+                    db.delete(case)
+        except Exception:
+            pass
+
+        # Finally delete source itself
+        with db.begin_nested():
+            db.delete(source)
             db.flush()
+
+        # Audit
+        try:
             from app.application.audit import AuditService
 
             AuditService(db).record(
-                action="source.archived",
+                action="source.deleted",
                 actor_user_id=user.user_id,
                 business_id=business_id,
                 target_type="source",
                 target_id=str(source.source_id),
                 meta={"name": source.name},
             )
-        else:
-            # Hard delete: no history, safe to remove
-            # Delete mappings first
-            for m in db.scalars(
-                select(models.SourceMapping).where(models.SourceMapping.source_id == source_id)
-            ):
-                db.delete(m)
-            for r in db.scalars(
-                select(models.SourceRecord).where(models.SourceRecord.source_id == source_id)
-            ):
-                db.delete(r)
-            db.delete(source)
+        except Exception:
+            pass
+
         db.commit()
     except Exception as exc:
         with contextlib.suppress(Exception):
@@ -1944,7 +2036,7 @@ def source_delete(
         return templates.TemplateResponse(
             request,
             "error.html",
-            {"current_user": user, "error": f"Delete failed: {exc}", "version": __version__},
+            {"current_user": user, "error": f"حذف ناموفق: {exc}", "version": __version__},
             status_code=500,
         )
 

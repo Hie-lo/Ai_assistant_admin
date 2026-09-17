@@ -333,35 +333,60 @@ def suggest_entries(headers: list[str]) -> list[SuggestedEntry]:
                 if model_idx is None:
                     model_idx = idx
         if brand_idx is not None and model_idx is not None:
-            # Use Brand as name, Model as sku if sku not taken
+            # Use Brand as name ONLY if we can generate Brand+Model later via extract_row
+            # But to avoid duplicate names (Brand same for all rows), we should NOT map Brand to name
+            # Instead, we leave Brand as category (already mapped) and let Model be name if possible
+            # If Model not taken, use Model as name, Brand as category
+            # This prevents all products named "Lenovo" -> duplicate detection
             if "name" not in taken:
-                entries[brand_idx] = SuggestedEntry(
-                    column=normalized_headers[brand_idx][0],
-                    canonical_field="name",
-                    field_kind=enums.FieldKind.CORE.value,
-                    field_type=_STRING,
-                    display_name="نام",
-                    required=True,
-                    template_exposed=False,
-                    confidence=0.7,
-                    evidence="Brand+Model fallback: Brand as name",
-                )
-                taken.add("name")
-                # If Model not already mapped and sku not taken, map Model to sku
-                if model_idx is not None and entries[model_idx].canonical_field is None and "sku" not in taken:
+                # Prefer Model as name (more unique) when Brand+Model exists
+                if entries[model_idx].canonical_field is None:
                     entries[model_idx] = SuggestedEntry(
                         column=normalized_headers[model_idx][0],
-                        canonical_field="sku",
+                        canonical_field="name",
                         field_kind=enums.FieldKind.CORE.value,
                         field_type=_STRING,
-                        display_name="کد کالا",
+                        display_name="نام",
+                        required=True,
+                        template_exposed=False,
+                        confidence=0.75,
+                        evidence="Brand+Model fallback: Model as name (unique)",
+                    )
+                    taken.add("name")
+                else:
+                    # Model already mapped to sku, use Brand+Model combined via Model column as name
+                    # Keep Brand as category, but override Model's canonical to name if it's sku
+                    # (sku can be regenerated from Model via custom attr)
+                    if entries[model_idx].canonical_field == "sku":
+                        entries[model_idx] = SuggestedEntry(
+                            column=normalized_headers[model_idx][0],
+                            canonical_field="name",
+                            field_kind=enums.FieldKind.CORE.value,
+                            field_type=_STRING,
+                            display_name="نام",
+                            required=True,
+                            template_exposed=False,
+                            confidence=0.72,
+                            evidence="Brand+Model fallback: Model as name, Brand as category",
+                        )
+                        taken.discard("sku")
+                        taken.add("name")
+                # Brand stays as category if not already taken
+                if brand_idx is not None and entries[brand_idx].canonical_field is None and "category" not in taken:
+                    entries[brand_idx] = SuggestedEntry(
+                        column=normalized_headers[brand_idx][0],
+                        canonical_field="category",
+                        field_kind=enums.FieldKind.CORE.value,
+                        field_type=_STRING,
+                        display_name="دسته‌بندی",
                         required=False,
                         template_exposed=False,
                         confidence=0.65,
-                        evidence="Brand+Model fallback: Model as sku",
+                        evidence="Brand as category when Model is name",
                     )
-                    taken.add("sku")
+                    taken.add("category")
         elif brand_idx is not None and "name" not in taken:
+            # Only Brand exists, use it as name (better than nothing)
             entries[brand_idx] = SuggestedEntry(
                 column=normalized_headers[brand_idx][0],
                 canonical_field="name",
