@@ -56,7 +56,6 @@ PLANS_SEED: list[dict[str, object]] = [
     {
         "code": "gold",
         "name": "Gold",
-        "description": "پلن طلایی — شامل نگاشت سفارشی پیشرفته (value_map برای فیلدهایی مثل تاچ)، قالب انعطاف‌پذیر، و تمام امکانات پایه",
         "currency": "IRT",
         "price": 1_990_000,
         "billing_period": "monthly",
@@ -78,7 +77,6 @@ PLANS_SEED: list[dict[str, object]] = [
     {
         "code": "pro",
         "name": "Pro",
-        "description": "پلن حرفه‌ای — بیشترین امکانات",
         "currency": "IRT",
         "price": 3_990_000,
         "billing_period": "monthly",
@@ -321,20 +319,22 @@ def seed_reference_data(conn: sa.Connection) -> None:
         if row["key"] not in existing_keys:
             conn.execute(BusinessType.__table__.insert().values([row]))
 
-    # Seed all plans (starter, gold, pro)
+    # Seed all plans (starter, gold, pro) - filter to actual table columns (no description)
     for plan_data in PLANS_SEED:
-        if conn.execute(sa.select(Plan.code).where(Plan.code == plan_data["code"])).first() is None:
-            conn.execute(Plan.__table__.insert().values([dict(plan_data)]))
+        # Only keep columns that exist in Plan model
+        clean = {k: v for k, v in plan_data.items() if k != "description"}
+        if conn.execute(sa.select(Plan.code).where(Plan.code == clean["code"])).first() is None:
+            conn.execute(Plan.__table__.insert().values([clean]))
         else:
             # Update existing plan to ensure gold features are present (idempotent)
-            if plan_data["code"] in ("gold", "pro"):
+            if clean["code"] in ("gold", "pro"):
                 conn.execute(
                     Plan.__table__.update()
-                    .where(Plan.code == plan_data["code"])
+                    .where(Plan.code == clean["code"])
                     .values(
-                        product_preset_eligible=plan_data["product_preset_eligible"],
-                        preset_customization=plan_data["preset_customization"],
-                        feature_flags=plan_data["feature_flags"],
+                        product_preset_eligible=clean["product_preset_eligible"],
+                        preset_customization=clean["preset_customization"],
+                        feature_flags=clean["feature_flags"],
                         is_active=True,
                     )
                 )

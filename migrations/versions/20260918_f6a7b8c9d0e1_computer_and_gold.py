@@ -46,7 +46,6 @@ PLANS = [
     {
         "code": "gold",
         "name": "Gold",
-        "description": "پلن طلایی — شامل نگاشت سفارشی پیشرفته (value_map برای فیلدهایی مثل تاچ)، قالب انعطاف‌پذیر",
         "currency": "IRT",
         "price": 1_990_000,
         "billing_period": "monthly",
@@ -67,7 +66,6 @@ PLANS = [
     {
         "code": "pro",
         "name": "Pro",
-        "description": "پلن حرفه‌ای — بیشترین امکانات",
         "currency": "IRT",
         "price": 3_990_000,
         "billing_period": "monthly",
@@ -146,13 +144,12 @@ def upgrade() -> None:
         if not exists:
             conn.execute(btypes_tbl.insert().values(**data))
 
-    # Plans
+    # Plans - no description column in actual model
     plans_tbl = sa.table(
         "plans",
         sa.column("plan_id", sa.Uuid),
         sa.column("code", sa.String),
         sa.column("name", sa.String),
-        sa.column("description", sa.String),
         sa.column("currency", sa.String),
         sa.column("price", sa.Integer),
         sa.column("billing_period", sa.String),
