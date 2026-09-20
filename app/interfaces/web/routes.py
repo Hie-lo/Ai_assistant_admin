@@ -339,23 +339,71 @@ def business_detail(request: Request, business_id: uuid.UUID, db: DbDep):
         business, _membership = biz_svc.require_business_access(
             db, user=user, business_id=business_id
         )
-    except Exception:
+    except Exception as exc:
+        with contextlib.suppress(Exception):
+            db.rollback()
         return templates.TemplateResponse(
             request,
             "error.html",
             {
                 "current_user": user,
-                "error": "کسب‌وکار یافت نشد",
+                "error": f"کسب‌وکار یافت نشد: {exc}",
                 "version": __version__,
             },
             status_code=404,
         )
+
+    # Load presets and entitlement for tabs (robust, never fail the page)
+    presets = []
+    preset_versions = []
+    has_gold = False
+    has_custom_mapping = False
+    try:
+        presets = db.scalars(
+            select(models.Preset).where(
+                models.Preset.business_type_key == business.business_type_key
+            )
+        ).all()
+        for p in presets:
+            av = db.scalar(
+                select(models.PresetVersion).where(
+                    models.PresetVersion.preset_id == p.preset_id,
+                    models.PresetVersion.status == "ACTIVE",
+                )
+            )
+            if av:
+                preset_versions.append((p, av))
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        presets = []
+        preset_versions = []
+
+    try:
+        from app.application import entitlements as ent_svc
+
+        ent = ent_svc.get_entitlements(db, business_id=business.business_id)
+        has_gold = ent.has_active and (
+            ent.product_preset_eligible or ent.preset_customization in ("advanced", "full")
+        )
+        feature_flags = ent.feature_flags or {}
+        has_custom_mapping = feature_flags.get("custom_value_mapping", False) or has_gold
+    except Exception:
+        with contextlib.suppress(Exception):
+            db.rollback()
+        has_gold = False
+        has_custom_mapping = False
+
     return templates.TemplateResponse(
         request,
         "business_detail.html",
         {
             "current_user": user,
             "business": business,
+            "presets": presets,
+            "preset_versions": preset_versions,
+            "has_gold": has_gold,
+            "has_custom_mapping": has_custom_mapping,
             "version": __version__,
         },
     )

@@ -9,6 +9,7 @@ reveal whether a business exists).
 
 from __future__ import annotations
 
+import contextlib
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -42,19 +43,24 @@ def create_business(
     if btype is None or not btype.is_active:
         raise ValidationError("Unknown or inactive business type")
 
-    # Prevent duplicate business name for same user (idempotency for double-click)
-    existing = db.scalars(
-        select(Business)
-        .join(Membership, Membership.business_id == Business.business_id)
-        .where(
-            Membership.user_id == user.user_id,
-            Membership.status == enums.MembershipStatus.ACTIVE.value,
-            Business.business_name.ilike(name),
-        )
-    ).first()
-    if existing is not None:
-        # Return existing instead of creating duplicate (customer-friendly)
-        return existing
+    # Prevent duplicate business name for same user (idempotency) - safe version
+    try:
+        with db.begin_nested():
+            existing = db.scalars(
+                select(Business)
+                .join(Membership, Membership.business_id == Business.business_id)
+                .where(
+                    Membership.user_id == user.user_id,
+                    Membership.status == enums.MembershipStatus.ACTIVE.value,
+                )
+            ).all()
+            for eb in existing:
+                if eb.business_name.strip().lower() == name.strip().lower():
+                    return eb
+    except Exception:
+        # If duplicate check fails, proceed to create (don't block)
+        with contextlib.suppress(Exception):
+            db.rollback()
 
     business = Business(business_name=name, business_type_key=business_type_key)
     db.add(business)

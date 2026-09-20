@@ -157,65 +157,46 @@ function collectEntries(){
     const entries = [];
     const seenCanonical = new Set();
     rows.forEach(tr => {
-        const column = tr.querySelector('.col-column')?.value?.trim();
-        if(!column) {
-            const input = tr.querySelector('.col-column');
-            // For manually added rows, column is in text input
-            const textInput = tr.querySelector('td:first-child input[type=\"text\"]');
-            if(textInput) {
-                const val = textInput.value.trim();
-                if(val) {
-                    tr.querySelector('.col-column')?.setAttribute('value', val);
-                    // Actually need to get from text input
-                    const col = val;
-                    const canonical = tr.querySelector('.col-canonical')?.value?.trim() || null;
-                    let kind = tr.querySelector('.col-kind')?.value || 'CUSTOM';
-                    const display = tr.querySelector('.col-display')?.value?.trim() || col;
-                    const required = tr.querySelector('.col-required')?.checked || false;
-                    if(!col) return;
-                    if(!canonical) kind = 'CUSTOM';
-                    if(canonical && seenCanonical.has(canonical)){
-                        kind = 'CUSTOM';
-                    }
-                    if(canonical) seenCanonical.add(canonical);
-                    let field_type = 'STRING';
-                    if(canonical==='price') field_type='PRICE';
-                    else if(canonical==='stock') field_type='STOCK';
-                    else if(canonical && canonical.startsWith('image')) field_type='MEDIA_URL';
-                    entries.push({
-                        column: col,
-                        canonical_field: canonical,
-                        field_kind: kind,
-                        field_type: field_type,
-                        display_name: display,
-                        required: required,
-                        template_exposed: false,
-                        confidence: 0.9,
-                        evidence: 'manual correction'
-                    });
-                    return;
-                }
-            }
-            return;
+        // Try hidden first, then strong tag, then text input (robust for all cases)
+        let column = tr.querySelector('.col-column')?.value?.trim();
+        if(!column){
+            const strong = tr.querySelector('td:first-child strong');
+            if(strong) column = strong.textContent.trim();
         }
+        if(!column){
+            const textInput = tr.querySelector('td:first-child input[type=\"text\"]');
+            if(textInput) column = textInput.value.trim();
+        }
+        if(!column) return; // skip empty rows
+
+        // Update hidden for consistency
+        const hidden = tr.querySelector('.col-column');
+        if(hidden) hidden.value = column;
+
         const canonical = tr.querySelector('.col-canonical')?.value?.trim() || null;
         let kind = tr.querySelector('.col-kind')?.value || 'CUSTOM';
         const display = tr.querySelector('.col-display')?.value?.trim() || column;
         const required = tr.querySelector('.col-required')?.checked || false;
-        if(!column) return;
+
         if(!canonical) kind = 'CUSTOM';
+        // Deduplicate canonical: first wins, rest become CUSTOM
+        let finalCanonical = canonical;
+        let finalKind = kind;
         if(canonical && seenCanonical.has(canonical)){
-            kind = 'CUSTOM';
+            finalKind = 'CUSTOM';
+            finalCanonical = null;
         }
-        if(canonical) seenCanonical.add(canonical);
+        if(finalCanonical) seenCanonical.add(finalCanonical);
+
         let field_type = 'STRING';
-        if(canonical==='price') field_type='PRICE';
-        else if(canonical==='stock') field_type='STOCK';
-        else if(canonical && canonical.startsWith('image')) field_type='MEDIA_URL';
+        if(finalCanonical==='price') field_type='PRICE';
+        else if(finalCanonical==='stock') field_type='STOCK';
+        else if(finalCanonical && finalCanonical.startsWith('image')) field_type='MEDIA_URL';
+
         entries.push({
             column: column,
-            canonical_field: canonical,
-            field_kind: kind,
+            canonical_field: finalCanonical,
+            field_kind: finalKind,
             field_type: field_type,
             display_name: display,
             required: required,
