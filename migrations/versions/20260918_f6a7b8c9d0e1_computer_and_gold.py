@@ -59,7 +59,7 @@ PLANS = [
         "product_preset_eligible": True,
         "preset_customization": "advanced",
         "report_level": "advanced",
-        "media_storage_limit_bytes": 5_368_709_120,
+        "media_storage_limit_bytes": 2147483647,  # max int32, ~2GiB (5GiB overflows Integer column)
         "admin_seat_limit": 10,
         "feature_flags": {"custom_value_mapping": True, "flexible_template": True},
     },
@@ -79,7 +79,7 @@ PLANS = [
         "product_preset_eligible": True,
         "preset_customization": "advanced",
         "report_level": "advanced",
-        "media_storage_limit_bytes": 20_971_520_000,
+        "media_storage_limit_bytes": 2147483647,  # max int32
         "admin_seat_limit": 50,
         "feature_flags": {"custom_value_mapping": True, "flexible_template": True, "all_features": True},
     },
